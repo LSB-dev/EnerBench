@@ -1,0 +1,231 @@
+/* assets/styles.css
+   ----------------------------------------------------------------------------
+   Dark / MES-like Styling für Dash
+   - bewusst minimal, aber sauber: Oberflächen, Typo, Dropdown, Karten
+   ----------------------------------------------------------------------------
+*/
+
+:root {
+  --bg: #0b0f14;
+  --surface: #101621;
+  --surface-2: #0f141c;
+  --border: rgba(255, 255, 255, 0.18);
+  --grid: rgba(255, 255, 255, 0.10);
+  --text: #ffffff;
+  --text-muted: rgba(255, 255, 255, 0.70);
+  --text-faint: rgba(255, 255, 255, 0.55);
+  --accent: rgba(255, 255, 255, 0.22);
+
+  --radius: 16px;
+  --radius-sm: 12px;
+
+  --shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  --shadow-soft: 0 6px 18px rgba(0, 0, 0, 0.35);
+
+  --font: Inter, "Segoe UI", Arial, sans-serif;
+}
+
+/* Page base */
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Root wrapper */
+.app-root {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+/* Navbar */
+.app-navbar {
+  border-bottom: 1px solid var(--border);
+}
+
+.navbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 28px;   /* ← Einzug links */
+
+}
+
+.navbar-title {
+  font-size: 30px;
+  padding-left: 16px;
+  font-weight: 400;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.navbar-badges {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.navbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.navbar-logo {
+  height: 32px;
+  width: auto;
+  max-width: 140px;
+  opacity: 0.95;
+}
+
+@media (max-width: 768px) {
+  .navbar-logo { height: 26px; }
+
+}
+
+
+/* Klickbarer Refresh-Badge */
+.badge-refresh {
+  cursor: pointer;
+  user-select: none;
+}
+
+.badge-refresh:hover {
+  background-color: rgba(255, 255, 255, 0.25);
+}
+
+
+/* Container spacing */
+.page-container {
+  padding-top: 14px;
+  padding-bottom: 26px;
+}
+
+/* Cards */
+.card-surface {
+  background: linear-gradient(180deg, var(--surface), var(--surface-2));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+/* Panel header */
+.panel-header {
+  background: rgba(0, 0, 0, 0.25);
+  border-bottom: 3px solid var(--border);
+  padding: 12px 20px;
+}
+
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-title {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--text);
+  opacity: 0.95;
+}
+
+.panel-info-icon {
+  cursor: help;
+  font-size: 16px;
+  opacity: 0.90;
+  margin-left: 10px;
+  color: var(--text);
+}
+
+/* Labels and meta text */
+.form-label-dark {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.meta-text {
+  padding-top: 6px;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+/* Dash Dropdown styling */
+.dash-dropdown .Select-control,
+.dash-dropdown .Select-menu-outer,
+.dash-dropdown .Select-menu {
+  background-color: rgba(0, 0, 0, 0.35) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+
+.dash-dropdown .Select-control {
+  border-radius: var(--radius-sm) !important;
+  min-height: 38px;
+  box-shadow: none !important;
+}
+
+.dash-dropdown .Select-placeholder,
+.dash-dropdown .Select-value-label {
+  color: var(--text) !important;
+}
+
+.dash-dropdown .Select-arrow-zone {
+  opacity: 0.85;
+}
+
+.dash-dropdown .Select.is-focused > .Select-control {
+  border-color: rgba(255, 255, 255, 0.30) !important;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08) !important;
+}
+
+.dash-dropdown .VirtualizedSelectOption {
+  color: var(--text) !important;
+}
+
+.dash-dropdown .VirtualizedSelectFocusedOption {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Graph container tweaks */
+.dash-graph {
+  border-radius: var(--radius);
+}
+
+/* Tooltip (dbc) */
+.tooltip-inner {
+  background: rgba(0, 0, 0, 0.90) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border);
+  max-width: 420px;
+  font-size: 12px;
+  padding: 10px 12px;
+}
+
+.bs-tooltip-auto[data-popper-placement^=left] .tooltip-arrow::before,
+.bs-tooltip-start .tooltip-arrow::before {
+  border-left-color: rgba(0, 0, 0, 0.90) !important;
+}
+
+/* Small polish */
+.card-body {
+  padding: 16px 16px;
+}
+
+@media (max-width: 768px) {
+  .navbar-title {
+    font-size: 14px;
+  }
+}
