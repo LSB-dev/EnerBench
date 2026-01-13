@@ -3,12 +3,10 @@
 # Plotly Dash Grundgerüst – Styling via assets/styles.css
 # - CSV: 4_loads.csv
 # - Dropdown zur Auswahl der Last (load_*)
-# - Zeitreihen-Plot unter dem Dropdown
-# - Zusätzlich: Self-Similarity Plot (Matplotlib) via Call auf
-#   analysis/self_similarity/run_self_similarity.py -> generate_self_similarity_plot
-#   Target = ausgewählte Last, References = alle anderen Loads
+# - Plotly: Zeitreihe
+# - Plotly: Self-Similarity via analysis/self_similarity/run_self_similarity.py
+# - Plotly: Min/Max/Median via analysis/min_max_median.py
 # - Refresh Badge rechts in der Navbar (Client-side Reload)
-# - IPA-Logo (assets/ipa.svg) links in der Title Bar, korrekt skaliert via CSS
 # -----------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -16,8 +14,6 @@ from __future__ import annotations
 import os
 import sys
 import logging
-import base64
-import io
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -28,19 +24,16 @@ import plotly.graph_objects as go
 from dash import Dash, Input, Output, dcc, html
 import dash_bootstrap_components as dbc
 
-# Matplotlib nur für close() (wichtig: sonst Memory-Leak bei Dropdown-Updates)
-from matplotlib import pyplot as plt
-
 # =============================================================================
 # Optional: Projekt-Root in sys.path, damit "analysis.*" sicher importierbar ist
-# (Annahme: app.py liegt im Projekt-Root. Falls nicht, parents[] anpassen.)
 # =============================================================================
 PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# Self-similarity Call (keine Logik-Duplikation im Dashboard)
+# External analysis calls (keine Logik-Duplikation im Dashboard)
 from analysis.self_similarity.run_self_similarity import generate_self_similarity_plot  # noqa: E402
+from analysis.min_max_median import generate_distribution_comparison  # noqa: E402
 
 
 # =============================================================================
@@ -78,14 +71,7 @@ CFG = AppConfig()
 # =============================================================================
 # Data loading
 # =============================================================================
-def project_root() -> Path:
-    try:
-        return Path(__file__).resolve().parent
-    except NameError:
-        return Path.cwd().resolve()
-
-
-DEFAULT_DATA_FILE = Path(r"D:\EnerBench\RawData\4_loads.csv")
+DEFAULT_DATA_FILE = Path(r"D:\EnerBench\RawData\15_loads.csv")
 
 
 def resolve_data_file() -> Path:
@@ -113,7 +99,7 @@ def load_csv(path: Path) -> pd.DataFrame:
     LOGGER.info("Lade CSV: %s", path)
     df = pd.read_csv(path, low_memory=False)
 
-    # Robust: erste Spalte als Timestamp (typischerweise "Unnamed: 0")
+    # Robust: erste Spalte als Timestamp
     time_col = df.columns[0]
     df = df.rename(columns={time_col: "timestamp"}).copy()
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
@@ -139,8 +125,13 @@ def label_for_load(col: str) -> str:
     return col.replace("load_", "Load ")
 
 
+def load_id(col: str) -> str:
+    # "load_230" -> "230"
+    return col.replace("load_", "")
+
+
 # =============================================================================
-# Figure styling (Layout über CSS, Plot über Plotly)
+# Figure styling
 # =============================================================================
 BG = "#0b0f14"
 GRID = "rgba(255,255,255,0.10)"
@@ -220,17 +211,6 @@ def fig_load_timeseries(df: pd.DataFrame, load_col: str) -> go.Figure:
 
 
 # =============================================================================
-# Matplotlib Figure -> Base64 PNG (für Dash html.Img)
-# =============================================================================
-def mpl_fig_to_base64_png(fig) -> str:
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-    buf.seek(0)
-    encoded = base64.b64encode(buf.read()).decode("ascii")
-    return f"data:image/png;base64,{encoded}"
-
-
-# =============================================================================
 # UI helpers
 # =============================================================================
 def panel(title: str, info_id: Optional[str] = None, info_text: Optional[str] = None) -> dbc.CardHeader:
@@ -266,14 +246,12 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
 
     default_load = load_cols[0]
 
-    # --- Logo links (assets/path14.svg wird automatisch unter /assets/ ausgeliefert) ---
     ipa_logo = html.Img(
         src="/assets/path14.svg",
         className="navbar-logo",
         alt="Fraunhofer IPA",
     )
 
-    # --- Refresh Badge (rechts in der Navbar) ---
     refresh_badge = dbc.Badge(
         [html.I(className="fa-solid fa-rotate-right me-2"), "Aktualisieren"],
         id="btn-refresh",
@@ -285,7 +263,6 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
     app.layout = html.Div(
         className="app-root",
         children=[
-            # Dummy store for clientside page reload
             dcc.Store(id="refresh-store"),
 
             dbc.Navbar(
@@ -293,7 +270,6 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                     fluid=True,
                     className="navbar-inner",
                     children=[
-                        # LEFT: Logo + Title
                         html.Div(
                             className="navbar-left",
                             children=[
@@ -301,7 +277,6 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                                 html.Div(CFG.title, className="navbar-title"),
                             ],
                         ),
-                        # RIGHT: Badges + Refresh
                         html.Div(
                             className="navbar-badges",
                             children=[
@@ -320,6 +295,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                 fluid=True,
                 className="page-container",
                 children=[
+                    # --- Auswahl ---
                     dbc.Row(
                         className="mb-3",
                         children=[
@@ -363,7 +339,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                         ],
                     ),
 
-                    # --- Time Series Plot (Plotly) ---
+                    # --- Plot 1: Time Series ---
                     dbc.Row(
                         className="mb-4",
                         children=[
@@ -382,26 +358,54 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                         ],
                     ),
 
-                    # --- Self Similarity Plot (Matplotlib -> PNG) ---
+                    # --- Self Similarity + Min/Max/Median nebeneinander ---
                     dbc.Row(
                         className="mb-4",
                         children=[
                             dbc.Col(
-                                width=12,
+                                lg=6,
+                                md=12,
                                 children=dbc.Card(
-                                    className="card-surface shadow-sm",
+                                    className="card-surface shadow-sm h-100",
                                     children=[
                                         panel(
-                                            "Self-Similarity",
+                                            "Selbstähnlichkeit Zeitreihe",
                                             info_id="info-ss",
                                             info_text="Vergleich Target-Load gegen alle anderen Loads (Lag 1d / 1w / Best-of).",
                                         ),
                                         dbc.CardBody(
-                                            dcc.Graph(id="img-self-sim", config=graph_config(), className="dash-graph"),
-                                        )
+                                            dcc.Graph(
+                                                id="g-self-sim",
+                                                config=graph_config(),
+                                                className="dash-graph",
+                                                style={"height": "520px"},
+                                            )
+                                        ),
                                     ],
                                 ),
-                            )
+                            ),
+                            dbc.Col(
+                                lg=6,
+                                md=12,
+                                children=dbc.Card(
+                                    className="card-surface shadow-sm h-100",
+                                    children=[
+                                        panel(
+                                            "Lasteinordnung (Min/Max/Median)",
+                                            info_id="info-mm",
+                                            info_text="Min/Max-Band und Median über alle Profile (sortiert nach Median) mit hervorgehobener Target-Last.",
+                                        ),
+                                        dbc.CardBody(
+                                            dcc.Graph(
+                                                id="g-minmax",
+                                                config=graph_config(),
+                                                className="dash-graph",
+                                                style={"height": "520px"},
+                                            )
+                                        ),
+                                    ],
+                                ),
+                            ),
                         ],
                     ),
                 ],
@@ -427,43 +431,54 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
     @app.callback(
         Output("g-ts", "figure"),
         Output("meta", "children"),
-        Output("img-self-sim", "figure"),
+        Output("g-self-sim", "figure"),
+        Output("g-minmax", "figure"),
         Input("dd-load", "value"),
         prevent_initial_call=False,
     )
-    def update_timeseries(load_col: str):
+    def update_dashboard(load_col: str):
         load_col = str(load_col)
 
-        # ---- Plot 1: Time Series (Plotly) ----
+        # ---- Plot 1: Zeitreihe ----
         fig_ts = fig_load_timeseries(df, load_col)
 
         ts_min = df["timestamp"].min()
         ts_max = df["timestamp"].max()
         n = len(df)
-
         meta = f"{label_for_load(load_col)} • Punkte: {n:,} • Zeitraum: {ts_min:%Y-%m-%d %H:%M} → {ts_max:%Y-%m-%d %H:%M}"
 
-        # ---- Plot 2: Self Similarity (Call in externem Modul) ----
+        # Target/Reference columns
         target_column = load_col
         reference_columns = [c for c in load_cols if c != target_column]
 
-        # Für Similarity: nur Loads, kein timestamp
+        # Numeric coercion (self_similarity arbeitet auf Zahlen)
         sim_df = df[reference_columns + [target_column]].copy()
-
-        # Numeric coercion (run_self_similarity arbeitet auf Zahlen)
         for c in sim_df.columns:
             sim_df[c] = pd.to_numeric(sim_df[c], errors="coerce")
-
-        # generate_self_similarity_plot verlangt: keine NaNs
         sim_df = sim_df.dropna(axis=0, how="any")
 
+        # ---- Plot 2: Self Similarity (ausgelagert) ----
         fig_selfsim = generate_self_similarity_plot(
-                data_df=sim_df,
-                reference_columns=reference_columns,
-                target_column=target_column)
+            data_df=sim_df,
+            reference_columns=reference_columns,
+            target_column=target_column,
+        )
 
+        # ---- Plot 3: Min/Max/Median (ausgelagert) ----
+        # min_max_median erwartet IDs ohne "load_"
+        target_id = load_id(target_column)
+        benchmark_ids = [load_id(c) for c in reference_columns]
+        fig_minmax = generate_distribution_comparison(
+            data_df=df,  # min/max/median ignorieren NaNs i.d.R. automatisch
+            benchmark_columns=benchmark_ids,
+            target_column=target_id,
+        )
 
-        return fig_ts, meta, fig_selfsim
+        # Optional: Dashboard-Style anwenden (Rahmen + dunkler Background konsistent)
+        fig_minmax = add_frame(fig_minmax)
+        fig_selfsim = add_frame(fig_selfsim)
+
+        return fig_ts, meta, fig_selfsim, fig_minmax
 
     return app
 
@@ -486,7 +501,8 @@ def main() -> None:
     )
 
     app = make_app(df, load_cols)
-    app.run(host=CFG.host, port=CFG.port, debug=CFG.debug, use_reloader=False)
+    # Dash API ist run_server
+    app.run_server(host=CFG.host, port=CFG.port, debug=CFG.debug, use_reloader=False)
 
 
 if __name__ == "__main__":

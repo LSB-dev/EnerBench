@@ -93,12 +93,28 @@ def generate_self_similarity_plot(data_df: pd.DataFrame, reference_columns: List
     add_box_and_target(fig, lag_7_scores, row=2)
     add_box_and_target(fig, best_lag_scores, row=3)
 
+    # Dashboard-farbliches Alignment (wie in app.py)
+    BG = "#0b0f14"
+    GRID = "rgba(255,255,255,0.10)"
+    AXIS = "rgba(255,255,255,0.25)"
+    TEXT = "#ffffff"
+
     fig.update_layout(
-        height=500,
+        template="plotly_dark",
+        paper_bgcolor=BG,
+        plot_bgcolor=BG,
+        font=dict(family="Inter, Segoe UI, Arial", size=12, color=TEXT),
+        height=520,
         boxmode="group",
-        title="Similarity Score Comparison",
-        margin=dict(l=50, r=30, t=50, b=40)
-    )
+        title=dict(text=" ", x=0.02, xanchor="left", font=dict(color=TEXT)),
+        margin=dict(l=60, r=20, t=60, b=55),
+        showlegend=False,
+        ),
+
+    # Achsen + Grid passend dunkel
+    for r in (1, 2, 3):
+        fig.update_xaxes(gridcolor=GRID, linecolor=AXIS, zeroline=False, tickfont=dict(color=TEXT), row=r, col=1)
+        fig.update_yaxes(gridcolor=GRID, linecolor=AXIS, zeroline=False, tickfont=dict(color=TEXT), row=r, col=1)
 
     fig.update_xaxes(title_text="Density", row=3, col=1)
 
