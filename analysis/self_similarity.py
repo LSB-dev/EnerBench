@@ -1,4 +1,5 @@
-# TODO LSB
+# Responsible:  LSB
+
 import pandas as pd
 from typing import List
 import matplotlib.pyplot as plt
@@ -7,10 +8,15 @@ from shared_util import check_all_columns_are_in_df
 
 
 def generate_self_similary_plot(data_df: pd.DataFrame, reference_columns: List[str], target_column: str):
+    # check inputs
     check_all_columns_are_in_df(data_df, reference_columns, target_column)
+
+    # do some work
+    # todo LSB
+
+    # create and return result plot
     fig = plt.figure(figsize=(20, 10))
     plt.plot([1, 2, 3, 4], [4, 5, 8, 5], label='nice one!')
-
     return fig
 
 
