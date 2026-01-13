@@ -1,7 +1,7 @@
 from dash import Dash, html, dcc, callback, Output, Input
 import plotly.express as px
 import pandas as pd
-from constants import DEFAULT_SAMPLE_FILE 
+from constants import DEFAULT_SAMPLE_FILE, APP_NAME
 
 df = pd.read_csv(DEFAULT_SAMPLE_FILE)
 
@@ -9,7 +9,7 @@ app = Dash()
 
 # Requires Dash 2.17.0 or later
 app.layout = [
-    html.H1(children='Title of Dash App', style={'textAlign':'center'}),
+    html.H1(children=APP_NAME, style={'textAlign':'center'}),
     dcc.Dropdown(df.country.unique(), 'Canada', id='dropdown-selection'),
     dcc.Graph(id='graph-content')
 ]
