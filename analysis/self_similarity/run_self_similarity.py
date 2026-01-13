@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 from analysis.self_similarity.metrics import evaluation_metrics
 from shared_util import check_all_columns_are_in_df
 
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 def _lag_similarity(df: pd.DataFrame, metric="sMAPE", lags=96):
     shifted_df = df.shift(lags)[lags:]
@@ -43,41 +45,63 @@ def generate_self_similarity_plot(data_df: pd.DataFrame, reference_columns: List
     lag_7_scores = _lag_1w_similarity(data_df[reference_columns + [target_column]])
     print(lag_1_scores)
 
-    target_color = "r"
+    target_color = "#ff0000"
     best_lag_scores = {col: min(lag_1_scores[col], lag_7_scores[col]) for col in lag_1_scores}
 
-    y_min = 0.5
-    y_max = 1.5
+    fig = make_subplots(
+        rows=3,
+        cols=1,
+        shared_xaxes=True,
+        subplot_titles=[
+            "Similarity Scores (Lag 1d)",
+            "Similarity Scores (Lag 1w)",
+            "Similarity Scores (Overall)"
+        ],
+        vertical_spacing=0.08
+    )
 
-    # create and return result plot
-    fig, axes = plt.subplots(3, 1, figsize=(10, 5), sharex=True)
+    def add_box_and_target(fig, scores, row):
+        data = [scores[col] for col in reference_columns]
 
-    data = [lag_1_scores[key] for key in reference_columns]
-    axes[0].boxplot(data, vert=False, patch_artist=True, boxprops=dict(facecolor="lightblue"))
-    axes[0].set_title(f"Similarity Scores (Lag 1d)")
-    axes[0].set_ylabel(f"")
-    axes[0].set_xlabel(f"Density")
-    axes[0].vlines(x=lag_1_scores[target_column], ymin=y_min, ymax=y_max, colors=target_color, linestyle="--", linewidth=2,
-                   label='Target')
+        # Boxplot
+        fig.add_trace(
+            go.Box(
+                x=data,
+                orientation="h",
+                name="Reference",
+                marker_color="lightblue",
+                boxmean=True,
+                showlegend=(row == 1)
+            ),
+            row=row,
+            col=1
+        )
 
-    data = [lag_7_scores[key] for key in reference_columns]
-    axes[1].boxplot(data, vert=False, patch_artist=True, boxprops=dict(facecolor="lightblue"))
-    axes[1].set_title(f"Similarity Scores (Lag 1w)")
-    axes[1].set_ylabel(f"")
-    axes[1].set_xlabel(f"Density")
-    axes[1].vlines(x=lag_7_scores[target_column], ymin=y_min, ymax=y_max, colors=target_color, linestyle="--", linewidth=2,
-                   label='Target')
+        # Vertikale Target-Linie
+        fig.add_shape(
+            type="line",
+            x0=scores[target_column],
+            x1=scores[target_column],
+            y0=0,
+            y1=1,
+            xref=f"x{row}" if row > 1 else "x",
+            yref="paper",
+            line=dict(color=target_color, width=2, dash="dash"),
+        )
 
-    data = [best_lag_scores[key] for key in reference_columns]
-    axes[2].boxplot(data, vert=False, patch_artist=True, boxprops=dict(facecolor="lightblue"))
-    axes[2].set_title(f"Similarity Scores (Overall)")
-    axes[2].set_ylabel(f"")
-    axes[2].set_xlabel(f"Density")
-    axes[2].vlines(x=best_lag_scores[target_column], ymin=y_min, ymax=y_max, colors=target_color, linestyle="--", linewidth=2,
-                   label='Target')
+    add_box_and_target(fig, lag_1_scores, row=1)
+    add_box_and_target(fig, lag_7_scores, row=2)
+    add_box_and_target(fig, best_lag_scores, row=3)
 
+    fig.update_layout(
+        height=500,
+        boxmode="group",
+        title="Similarity Score Comparison",
+        margin=dict(l=50, r=30, t=50, b=40)
+    )
 
-    plt.legend()
+    fig.update_xaxes(title_text="Density", row=3, col=1)
+
     return fig
 
 
