@@ -397,15 +397,8 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                                             info_text="Vergleich Target-Load gegen alle anderen Loads (Lag 1d / 1w / Best-of).",
                                         ),
                                         dbc.CardBody(
-                                            dcc.Loading(
-                                                type="default",
-                                                children=html.Img(
-                                                    id="img-self-sim",
-                                                    style={"width": "100%", "height": "auto"},
-                                                    alt="Self Similarity Plot",
-                                                ),
-                                            )
-                                        ),
+                                            dcc.Graph(id="img-self-sim", config=graph_config(), className="dash-graph"),
+                                        )
                                     ],
                                 ),
                             )
@@ -434,7 +427,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
     @app.callback(
         Output("g-ts", "figure"),
         Output("meta", "children"),
-        Output("img-self-sim", "src"),
+        Output("img-self-sim", "figure"),
         Input("dd-load", "value"),
         prevent_initial_call=False,
     )
@@ -464,23 +457,13 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
         # generate_self_similarity_plot verlangt: keine NaNs
         sim_df = sim_df.dropna(axis=0, how="any")
 
-        fig_mpl = None
-        try:
-            fig_mpl = generate_self_similarity_plot(
+        fig_selfsim = generate_self_similarity_plot(
                 data_df=sim_df,
                 reference_columns=reference_columns,
-                target_column=target_column,
-            )
-            img_src = mpl_fig_to_base64_png(fig_mpl)
-        finally:
-            # wichtig: figure schließen, sonst wächst Memory bei jeder Dropdown-Änderung
-            if fig_mpl is not None:
-                try:
-                    plt.close(fig_mpl)
-                except Exception:
-                    pass
+                target_column=target_column)
 
-        return fig_ts, meta, img_src
+
+        return fig_ts, meta, fig_selfsim
 
     return app
 
@@ -503,7 +486,7 @@ def main() -> None:
     )
 
     app = make_app(df, load_cols)
-    app.run_server(host=CFG.host, port=CFG.port, debug=CFG.debug, use_reloader=False)
+    app.run(host=CFG.host, port=CFG.port, debug=CFG.debug, use_reloader=False)
 
 
 if __name__ == "__main__":
