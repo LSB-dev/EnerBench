@@ -17,15 +17,15 @@ def generate_distribution_comparison(data_df:  pd.DataFrame, benchmark_columns: 
     fig : matplotlib.figure.Figure
     """
 
+    ref_cols = [f"load_{x}" for x in benchmark_columns]
+    target_col = f"load_{target_column}"
+
     # Colors
     c_min = "#4C78A8"  # blue
     c_max = "#54A24B"  # green
     c_med = "#F58518"  # orange
     c_target = "#E45756"  # red
     c_band = "lightgrey"  # fill
-
-    ref_cols = [f"load_{x}" for x in benchmark_columns]
-    target_col = f"load_{target_column}"
 
     # Reference statistics
     ref_mins = data_df[ref_cols].min().rename("min")
