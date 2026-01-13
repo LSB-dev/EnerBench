@@ -3,10 +3,12 @@
 # Plotly Dash Grundgerüst – Styling via assets/styles.css
 # - CSV: 4_loads.csv
 # - Dropdown zur Auswahl der Last (load_*)
-# - Zeitreihen-Plot
-# - Self-Similarity Plot (Plotly, basiert auf eurer Logik: sMAPE, lag 1d & 1w)
+# - Zeitreihen-Plot unter dem Dropdown
+# - Zusätzlich: Self-Similarity Plot (Matplotlib) via Call auf
+#   analysis/self_similarity/run_self_similarity.py -> generate_self_similarity_plot
+#   Target = ausgewählte Last, References = alle anderen Loads
 # - Refresh Badge rechts in der Navbar (Client-side Reload)
-# - IPA-Logo (assets/path14.svg) links in der Title Bar
+# - IPA-Logo (assets/ipa.svg) links in der Title Bar, korrekt skaliert via CSS
 # -----------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -14,16 +16,31 @@ from __future__ import annotations
 import os
 import sys
 import logging
+import base64
+import io
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
 from dash import Dash, Input, Output, dcc, html
 import dash_bootstrap_components as dbc
+
+# Matplotlib nur für close() (wichtig: sonst Memory-Leak bei Dropdown-Updates)
+from matplotlib import pyplot as plt
+
+# =============================================================================
+# Optional: Projekt-Root in sys.path, damit "analysis.*" sicher importierbar ist
+# (Annahme: app.py liegt im Projekt-Root. Falls nicht, parents[] anpassen.)
+# =============================================================================
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+# Self-similarity Call (keine Logik-Duplikation im Dashboard)
+from analysis.self_similarity.run_self_similarity import generate_self_similarity_plot  # noqa: E402
 
 
 # =============================================================================
@@ -61,6 +78,13 @@ CFG = AppConfig()
 # =============================================================================
 # Data loading
 # =============================================================================
+def project_root() -> Path:
+    try:
+        return Path(__file__).resolve().parent
+    except NameError:
+        return Path.cwd().resolve()
+
+
 DEFAULT_DATA_FILE = Path(r"D:\EnerBench\RawData\4_loads.csv")
 
 
@@ -89,7 +113,7 @@ def load_csv(path: Path) -> pd.DataFrame:
     LOGGER.info("Lade CSV: %s", path)
     df = pd.read_csv(path, low_memory=False)
 
-    # Erste Spalte als Timestamp (bei euch oft leer benannt / Unnamed: 0)
+    # Robust: erste Spalte als Timestamp (typischerweise "Unnamed: 0")
     time_col = df.columns[0]
     df = df.rename(columns={time_col: "timestamp"}).copy()
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
@@ -100,24 +124,23 @@ def load_csv(path: Path) -> pd.DataFrame:
     if removed:
         LOGGER.info("Rows ohne gültigen Timestamp entfernt: %s", removed)
 
-    df = df.sort_values("timestamp").reset_index(drop=True)
+    df = df.sort_values("timestamp")
     return df
 
 
 def find_load_columns(df: pd.DataFrame) -> List[str]:
-    load_cols = [c for c in df.columns if str(c).startswith("load_")]
+    load_cols = [c for c in df.columns if c.startswith("load_")]
     if not load_cols:
         raise KeyError("Keine Spalten gefunden, die mit 'load_' beginnen.")
-    # numerisch sortieren: load_116 < load_665
-    return sorted(load_cols, key=lambda c: int(str(c).split("_")[1]))
+    return sorted(load_cols)
 
 
 def label_for_load(col: str) -> str:
-    return str(col).replace("load_", "Load ")
+    return col.replace("load_", "Load ")
 
 
 # =============================================================================
-# Figure styling
+# Figure styling (Layout über CSS, Plot über Plotly)
 # =============================================================================
 BG = "#0b0f14"
 GRID = "rgba(255,255,255,0.10)"
@@ -133,7 +156,7 @@ def graph_config() -> dict:
     }
 
 
-def style_figure(fig: go.Figure, title: str, x_label: str, y_label: str, *, height: Optional[int] = None) -> go.Figure:
+def style_figure(fig: go.Figure, title: str, x_label: str, y_label: str) -> go.Figure:
     fig.update_layout(
         template="plotly_dark",
         paper_bgcolor=BG,
@@ -141,8 +164,17 @@ def style_figure(fig: go.Figure, title: str, x_label: str, y_label: str, *, heig
         font=dict(family="Inter, Segoe UI, Arial", size=12, color=TEXT),
         title=dict(text=f"<b>{title}</b>", x=0.02, xanchor="left", font=dict(color=TEXT)),
         autosize=True,
-        height=height or CFG.fig_height,
+        height=CFG.fig_height,
         margin=dict(l=60, r=20, t=60, b=55),
+        legend=dict(
+            orientation="h",
+            x=0.5,
+            y=1.10,
+            xanchor="center",
+            yanchor="bottom",
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(color=TEXT),
+        ),
     )
     fig.update_xaxes(title_text=x_label, gridcolor=GRID, linecolor=AXIS, zeroline=False, tickfont=dict(color=TEXT))
     fig.update_yaxes(title_text=y_label, gridcolor=GRID, linecolor=AXIS, zeroline=False, tickfont=dict(color=TEXT))
@@ -168,100 +200,6 @@ def add_frame(fig: go.Figure, width: float = 1.5) -> go.Figure:
     return fig
 
 
-# =============================================================================
-# Self similarity (Plotly version of your logic)
-# =============================================================================
-def sMAPE(y: np.ndarray, y_pred: np.ndarray) -> float:
-    y = np.asarray(y, dtype=float)
-    y_pred = np.asarray(y_pred, dtype=float)
-
-    denom = (np.abs(y) + np.abs(y_pred)) / 2.0
-    mask = denom != 0
-    if not np.any(mask):
-        return 0.0
-    num = np.abs(y - y_pred)
-    return float(100.0 * np.mean(num[mask] / denom[mask]))
-
-
-def _lag_scores(df_num: pd.DataFrame, lags: int) -> Dict[str, float]:
-    shifted = df_num.shift(lags)
-    # align: ignore first `lags`
-    original = df_num.iloc[lags:]
-    shifted = shifted.iloc[lags:]
-
-    scores: Dict[str, float] = {}
-    for col in original.columns:
-        y = original[col].to_numpy()
-        y_pred = shifted[col].to_numpy()
-        scores[col] = sMAPE(y, y_pred)
-    return scores
-
-
-def compute_self_similarity_best(df: pd.DataFrame, cols: List[str], *, lag_1d: int = 96, lag_1w: int = 96 * 7) -> Dict[str, float]:
-    """
-    Best-of (min) zwischen lag 1 day und lag 1 week (wie in eurem Code).
-    Erwartet: cols sind numerisch konvertierbar, NaNs werden vorher entfernt.
-    """
-    df_num = df[cols].apply(pd.to_numeric, errors="coerce")
-
-    # robust: rows mit NaN in irgendeiner betrachteten Spalte rauswerfen
-    df_num = df_num.dropna(axis=0, how="any")
-    if len(df_num) <= max(lag_1d, lag_1w) + 1:
-        raise ValueError(f"Zu wenig Daten nach NaN-Filter: rows={len(df_num)} für lags={max(lag_1d, lag_1w)}")
-
-    s1 = _lag_scores(df_num, lags=lag_1d)
-    s7 = _lag_scores(df_num, lags=lag_1w)
-    return {c: min(s1[c], s7[c]) for c in s1.keys()}
-
-
-def fig_self_similarity(df: pd.DataFrame, target_col: str, load_cols: List[str]) -> go.Figure:
-    cols = [c for c in load_cols]  # include target too (for its own score)
-    scores = compute_self_similarity_best(df, cols, lag_1d=96, lag_1w=96 * 7)
-
-    reference_cols = [c for c in load_cols if c != target_col]
-    ref_scores = [scores[c] for c in reference_cols]
-    target_score = scores[target_col]
-
-    fig = go.Figure()
-
-    fig.add_trace(
-        go.Histogram(
-            x=ref_scores,
-            nbinsx=35,
-            name="Referenzen",
-            opacity=0.95,
-        )
-    )
-
-    # vertikale Linie für Target
-    fig.add_vline(
-        x=target_score,
-        line_width=3,
-        line_dash="solid",
-        line_color="red",
-    )
-
-    fig.add_annotation(
-        x=target_score,
-        y=1,
-        xref="x",
-        yref="paper",
-        text=f"<b>{label_for_load(target_col)}</b><br>sMAPE={target_score:.2f}%",
-        showarrow=True,
-        arrowhead=2,
-        ax=40,
-        ay=-40,
-        font=dict(color=TEXT),
-    )
-
-    fig = style_figure(fig, "Self Similarity (best of 1d / 1w)", "sMAPE [%] (kleiner = ähnlicher)", "Count", height=420)
-    fig.update_layout(bargap=0.06, showlegend=False)
-    return add_frame(fig)
-
-
-# =============================================================================
-# Time series plot
-# =============================================================================
 def fig_load_timeseries(df: pd.DataFrame, load_col: str) -> go.Figure:
     dff = df[["timestamp", load_col]].copy()
     dff[load_col] = pd.to_numeric(dff[load_col], errors="coerce")
@@ -279,6 +217,17 @@ def fig_load_timeseries(df: pd.DataFrame, load_col: str) -> go.Figure:
     fig = style_figure(fig, "Zeitreihe", "Zeit", "Leistung (kW)")
     fig.update_layout(showlegend=False)
     return add_frame(fig)
+
+
+# =============================================================================
+# Matplotlib Figure -> Base64 PNG (für Dash html.Img)
+# =============================================================================
+def mpl_fig_to_base64_png(fig) -> str:
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+    buf.seek(0)
+    encoded = base64.b64encode(buf.read()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 # =============================================================================
@@ -317,12 +266,14 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
 
     default_load = load_cols[0]
 
+    # --- Logo links (assets/path14.svg wird automatisch unter /assets/ ausgeliefert) ---
     ipa_logo = html.Img(
         src="/assets/path14.svg",
         className="navbar-logo",
         alt="Fraunhofer IPA",
     )
 
+    # --- Refresh Badge (rechts in der Navbar) ---
     refresh_badge = dbc.Badge(
         [html.I(className="fa-solid fa-rotate-right me-2"), "Aktualisieren"],
         id="btn-refresh",
@@ -334,6 +285,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
     app.layout = html.Div(
         className="app-root",
         children=[
+            # Dummy store for clientside page reload
             dcc.Store(id="refresh-store"),
 
             dbc.Navbar(
@@ -341,10 +293,15 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                     fluid=True,
                     className="navbar-inner",
                     children=[
+                        # LEFT: Logo + Title
                         html.Div(
                             className="navbar-left",
-                            children=[ipa_logo, html.Div(CFG.title, className="navbar-title")],
+                            children=[
+                                ipa_logo,
+                                html.Div(CFG.title, className="navbar-title"),
+                            ],
                         ),
+                        # RIGHT: Badges + Refresh
                         html.Div(
                             className="navbar-badges",
                             children=[
@@ -363,9 +320,6 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                 fluid=True,
                 className="page-container",
                 children=[
-                    # ------------------------
-                    # Auswahl
-                    # ------------------------
                     dbc.Row(
                         className="mb-3",
                         children=[
@@ -381,26 +335,15 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                                                 children=[
                                                     dbc.Col(
                                                         md=6,
-                                                        # z-index Fix, falls Dropdown überlagert wird
-                                                        style={"position": "relative", "zIndex": 5000},
                                                         children=[
                                                             dbc.Label("Last", className="form-label-dark"),
-                                                            html.Div(
-                                                                className="dropdown-wrap",
-                                                                style={"position": "relative", "zIndex": 5000},
-                                                                children=[
-                                                                    dcc.Dropdown(
-                                                                        id="dd-load",
-                                                                        className="dash-dropdown",
-                                                                        options=[{"label": label_for_load(c), "value": c} for c in load_cols],
-                                                                        value=default_load,
-                                                                        clearable=False,
-                                                                        searchable=True,
-                                                                        maxHeight=360,
-                                                                        optionHeight=36,
-                                                                        style={"zIndex": 5000},
-                                                                    )
-                                                                ],
+                                                            dcc.Dropdown(
+                                                                id="dd-load",
+                                                                className="dash-dropdown",
+                                                                options=[{"label": label_for_load(c), "value": c} for c in load_cols],
+                                                                value=default_load,
+                                                                clearable=False,
+                                                                searchable=False,
                                                             ),
                                                         ],
                                                     ),
@@ -420,28 +363,26 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                         ],
                     ),
 
-                    # ------------------------
-                    # Zeitreihe
-                    # ------------------------
+                    # --- Time Series Plot (Plotly) ---
                     dbc.Row(
-                        className="mb-3",
+                        className="mb-4",
                         children=[
                             dbc.Col(
                                 width=12,
                                 children=dbc.Card(
                                     className="card-surface shadow-sm",
                                     children=[
-                                        panel("Visualisierung – Zeitreihe", info_id="info-ts", info_text="Zeitreihe der ausgewählten Last."),
-                                        dbc.CardBody(dcc.Graph(id="g-ts", config=graph_config(), className="dash-graph")),
+                                        panel("Visualisierung", info_id="info-ts", info_text="Zeitreihe der ausgewählten Last."),
+                                        dbc.CardBody(
+                                            dcc.Graph(id="g-ts", config=graph_config(), className="dash-graph"),
+                                        ),
                                     ],
                                 ),
                             )
                         ],
                     ),
 
-                    # ------------------------
-                    # Self Similarity
-                    # ------------------------
+                    # --- Self Similarity Plot (Matplotlib -> PNG) ---
                     dbc.Row(
                         className="mb-4",
                         children=[
@@ -451,11 +392,20 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                                     className="card-surface shadow-sm",
                                     children=[
                                         panel(
-                                            "Self Similarity",
+                                            "Self-Similarity",
                                             info_id="info-ss",
-                                            info_text="Histogramm der Self-Similarity (best of 1d/1w) aller Referenz-Loads; rote Linie = ausgewählter Target-Load.",
+                                            info_text="Vergleich Target-Load gegen alle anderen Loads (Lag 1d / 1w / Best-of).",
                                         ),
-                                        dbc.CardBody(dcc.Graph(id="g-ss", config=graph_config(), className="dash-graph")),
+                                        dbc.CardBody(
+                                            dcc.Loading(
+                                                type="default",
+                                                children=html.Img(
+                                                    id="img-self-sim",
+                                                    style={"width": "100%", "height": "auto"},
+                                                    alt="Self Similarity Plot",
+                                                ),
+                                            )
+                                        ),
                                     ],
                                 ),
                             )
@@ -466,7 +416,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
         ],
     )
 
-    # Refresh: clientside reload
+    # --- Clientside reload callback (Badge click) ---
     app.clientside_callback(
         """
         function(n_clicks) {
@@ -481,42 +431,56 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
         prevent_initial_call=True,
     )
 
-    # Main callback: update both plots + meta
     @app.callback(
         Output("g-ts", "figure"),
-        Output("g-ss", "figure"),
         Output("meta", "children"),
+        Output("img-self-sim", "src"),
         Input("dd-load", "value"),
         prevent_initial_call=False,
     )
-    def update_dashboard(load_col: str):
+    def update_timeseries(load_col: str):
         load_col = str(load_col)
 
+        # ---- Plot 1: Time Series (Plotly) ----
         fig_ts = fig_load_timeseries(df, load_col)
-
-        # Self similarity can fail if too few rows after NaN dropping -> handle gracefully
-        try:
-            fig_ss = fig_self_similarity(df, load_col, load_cols)
-        except Exception as e:
-            LOGGER.warning("Self-similarity failed: %s", e)
-            fig_ss = style_figure(go.Figure(), "Self Similarity", "", "", height=420)
-            fig_ss.add_annotation(
-                text=f"<b>Self Similarity nicht verfügbar</b><br>{str(e)}",
-                xref="paper",
-                yref="paper",
-                x=0.5,
-                y=0.5,
-                showarrow=False,
-                font=dict(color=TEXT, size=14),
-            )
-            fig_ss = add_frame(fig_ss)
 
         ts_min = df["timestamp"].min()
         ts_max = df["timestamp"].max()
         n = len(df)
+
         meta = f"{label_for_load(load_col)} • Punkte: {n:,} • Zeitraum: {ts_min:%Y-%m-%d %H:%M} → {ts_max:%Y-%m-%d %H:%M}"
 
-        return fig_ts, fig_ss, meta
+        # ---- Plot 2: Self Similarity (Call in externem Modul) ----
+        target_column = load_col
+        reference_columns = [c for c in load_cols if c != target_column]
+
+        # Für Similarity: nur Loads, kein timestamp
+        sim_df = df[reference_columns + [target_column]].copy()
+
+        # Numeric coercion (run_self_similarity arbeitet auf Zahlen)
+        for c in sim_df.columns:
+            sim_df[c] = pd.to_numeric(sim_df[c], errors="coerce")
+
+        # generate_self_similarity_plot verlangt: keine NaNs
+        sim_df = sim_df.dropna(axis=0, how="any")
+
+        fig_mpl = None
+        try:
+            fig_mpl = generate_self_similarity_plot(
+                data_df=sim_df,
+                reference_columns=reference_columns,
+                target_column=target_column,
+            )
+            img_src = mpl_fig_to_base64_png(fig_mpl)
+        finally:
+            # wichtig: figure schließen, sonst wächst Memory bei jeder Dropdown-Änderung
+            if fig_mpl is not None:
+                try:
+                    plt.close(fig_mpl)
+                except Exception:
+                    pass
+
+        return fig_ts, meta, img_src
 
     return app
 
