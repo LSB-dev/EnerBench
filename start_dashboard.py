@@ -3,12 +3,13 @@
 # Plotly Dash Grundgerüst – Styling via assets/styles.css
 # - CSV: 4_loads.csv
 # - Dropdown zur Auswahl der Last (load_*)
-# - Zeitreihen-Plot unter dem Dropdown
-# - Zusätzlich: Self-Similarity Plot (Matplotlib) via Call auf
-#   analysis/self_similarity/run_self_similarity.py -> generate_self_similarity_plot
-#   Target = ausgewählte Last, References = alle anderen Loads
+# - Plot 1 (Plotly): Zeitreihe der gewählten Last
+# - Plot 2 (Matplotlib -> PNG): Self-Similarity via analysis/self_similarity/run_self_similarity.py
+# - Plot 3 (Plotly): Min/Max/Median Distribution Comparison via analysis/min_max_median.py
+#       * Re-use der bestehenden Funktion generate_distribution_comparison(...)
+#       * Rendering im Dashboard als Plotly (Konvertierung Matplotlib -> Plotly-Daten)
 # - Refresh Badge rechts in der Navbar (Client-side Reload)
-# - IPA-Logo (assets/ipa.svg) links in der Title Bar, korrekt skaliert via CSS
+# - IPA-Logo (assets/path14.svg)
 # -----------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import base64
 import io
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -28,19 +29,22 @@ import plotly.graph_objects as go
 from dash import Dash, Input, Output, dcc, html
 import dash_bootstrap_components as dbc
 
-# Matplotlib nur für close() (wichtig: sonst Memory-Leak bei Dropdown-Updates)
+# Matplotlib nur für: Self-Similarity Render + Close() + Konvertierung min_max_median -> plotly
 from matplotlib import pyplot as plt
 
+
 # =============================================================================
-# Optional: Projekt-Root in sys.path, damit "analysis.*" sicher importierbar ist
-# (Annahme: app.py liegt im Projekt-Root. Falls nicht, parents[] anpassen.)
+# Ensure project root in sys.path (for imports like analysis.*)
 # =============================================================================
 PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# Self-similarity Call (keine Logik-Duplikation im Dashboard)
+# Self-similarity (existing logic)
 from analysis.self_similarity.run_self_similarity import generate_self_similarity_plot  # noqa: E402
+
+# Distribution comparison (existing logic, matplotlib)
+from analysis.min_max_median import generate_distribution_comparison  # noqa: E402
 
 
 # =============================================================================
@@ -70,6 +74,7 @@ class AppConfig:
     port: int = int(os.getenv("DASH_PORT", "8050"))
     debug: bool = os.getenv("DASH_DEBUG", "0").lower() in ("1", "true", "yes")
     fig_height: int = 520
+    fig_height_small: int = 420
 
 
 CFG = AppConfig()
@@ -78,13 +83,6 @@ CFG = AppConfig()
 # =============================================================================
 # Data loading
 # =============================================================================
-def project_root() -> Path:
-    try:
-        return Path(__file__).resolve().parent
-    except NameError:
-        return Path.cwd().resolve()
-
-
 DEFAULT_DATA_FILE = Path(r"D:\EnerBench\RawData\4_loads.csv")
 
 
@@ -113,7 +111,7 @@ def load_csv(path: Path) -> pd.DataFrame:
     LOGGER.info("Lade CSV: %s", path)
     df = pd.read_csv(path, low_memory=False)
 
-    # Robust: erste Spalte als Timestamp (typischerweise "Unnamed: 0")
+    # Robust: erste Spalte als Timestamp
     time_col = df.columns[0]
     df = df.rename(columns={time_col: "timestamp"}).copy()
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
@@ -139,8 +137,13 @@ def label_for_load(col: str) -> str:
     return col.replace("load_", "Load ")
 
 
+def id_for_load(col: str) -> str:
+    # "load_640" -> "640"
+    return col.replace("load_", "")
+
+
 # =============================================================================
-# Figure styling (Layout über CSS, Plot über Plotly)
+# Plotly styling
 # =============================================================================
 BG = "#0b0f14"
 GRID = "rgba(255,255,255,0.10)"
@@ -156,7 +159,7 @@ def graph_config() -> dict:
     }
 
 
-def style_figure(fig: go.Figure, title: str, x_label: str, y_label: str) -> go.Figure:
+def style_figure(fig: go.Figure, title: str, x_label: str, y_label: str, height: int) -> go.Figure:
     fig.update_layout(
         template="plotly_dark",
         paper_bgcolor=BG,
@@ -164,7 +167,7 @@ def style_figure(fig: go.Figure, title: str, x_label: str, y_label: str) -> go.F
         font=dict(family="Inter, Segoe UI, Arial", size=12, color=TEXT),
         title=dict(text=f"<b>{title}</b>", x=0.02, xanchor="left", font=dict(color=TEXT)),
         autosize=True,
-        height=CFG.fig_height,
+        height=height,
         margin=dict(l=60, r=20, t=60, b=55),
         legend=dict(
             orientation="h",
@@ -214,7 +217,7 @@ def fig_load_timeseries(df: pd.DataFrame, load_col: str) -> go.Figure:
             line=dict(width=2),
         )
     )
-    fig = style_figure(fig, "Zeitreihe", "Zeit", "Leistung (kW)")
+    fig = style_figure(fig, "Zeitreihe", "Zeit", "Leistung (kW)", height=CFG.fig_height)
     fig.update_layout(showlegend=False)
     return add_frame(fig)
 
@@ -228,6 +231,128 @@ def mpl_fig_to_base64_png(fig) -> str:
     buf.seek(0)
     encoded = base64.b64encode(buf.read()).decode("ascii")
     return f"data:image/png;base64,{encoded}"
+
+
+# =============================================================================
+# Matplotlib -> Plotly conversion (for min_max_median plot)
+# We intentionally re-use the existing min_max_median.generate_distribution_comparison(...)
+# and only convert its rendered data into a Plotly figure for dashboard visualization.
+# =============================================================================
+def plotly_from_distribution_mpl(fig_mpl) -> go.Figure:
+    """
+    Convert the matplotlib figure created by generate_distribution_comparison(...)
+    into a Plotly figure (lines + band + highlighted target).
+    """
+    ax = fig_mpl.axes[0]
+
+    # Extract line data by label ("min", "max", "median")
+    lines_by_label: Dict[str, Any] = {}
+    for ln in ax.lines:
+        label = (ln.get_label() or "").strip()
+        if label in {"min", "max", "median"}:
+            lines_by_label[label] = ln
+
+    if not {"min", "max", "median"}.issubset(lines_by_label.keys()):
+        raise RuntimeError("Konnte die erwarteten Linien ('min','max','median') aus dem Matplotlib-Plot nicht extrahieren.")
+
+    x = list(lines_by_label["min"].get_xdata())
+    y_min = list(lines_by_label["min"].get_ydata())
+    y_max = list(lines_by_label["max"].get_ydata())
+    y_med = list(lines_by_label["median"].get_ydata())
+
+    # Target x-position from xticks (the function sets exactly one tick at target)
+    xticks = ax.get_xticks()
+    x_target = float(xticks[0]) if len(xticks) else None
+
+    # Target points from PathCollection offsets (scatter creates a PathCollection)
+    # We'll pick the collection with 3 points (min/median/max).
+    target_points = None
+    for coll in getattr(ax, "collections", []):
+        if hasattr(coll, "get_offsets"):
+            offsets = coll.get_offsets()
+            # offsets can be a numpy array; length check is robust
+            try:
+                if len(offsets) == 3:
+                    target_points = offsets
+                    break
+            except Exception:
+                continue
+
+    # Build Plotly figure
+    fig = go.Figure()
+
+    # Band (min..max)
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=y_min,
+            mode="lines",
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo="skip",
+            name="band_min",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=y_max,
+            mode="lines",
+            fill="tonexty",
+            opacity=0.25,
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo="skip",
+            name="band_max",
+        )
+    )
+
+    # Lines
+    fig.add_trace(go.Scatter(x=x, y=y_min, mode="lines", name="min", line=dict(width=2)))
+    fig.add_trace(go.Scatter(x=x, y=y_max, mode="lines", name="max", line=dict(width=2)))
+    fig.add_trace(go.Scatter(x=x, y=y_med, mode="lines", name="median", line=dict(width=2)))
+
+    # Highlight target: dashed vertical + points
+    shapes = []
+    if x_target is not None and target_points is not None:
+        # offsets: [[x, y_min],[x, y_med],[x, y_max]] (order as plotted)
+        ys = sorted([float(p[1]) for p in target_points])
+        y_tmin, y_tmed, y_tmax = ys[0], ys[1], ys[2]
+
+        shapes.append(
+            dict(
+                type="line",
+                xref="x",
+                yref="y",
+                x0=x_target,
+                x1=x_target,
+                y0=y_tmin,
+                y1=y_tmax,
+                line=dict(width=2, dash="dash"),
+            )
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=[x_target, x_target, x_target],
+                y=[y_tmin, y_tmed, y_tmax],
+                mode="markers",
+                name="target",
+                marker=dict(size=9),
+            )
+        )
+
+        # Show only target tick label (as original mpl)
+        ticktext = [str(ax.get_xticklabels()[0].get_text())] if ax.get_xticklabels() else ["target"]
+        fig.update_xaxes(tickmode="array", tickvals=[x_target], ticktext=ticktext)
+
+    # Titles/labels from mpl
+    title = ax.get_title() or "Distribution Comparison"
+    ylab = ax.get_ylabel() or "Load / kW"
+
+    fig = style_figure(fig, title, "Profil-Index (sortiert nach Median)", ylab, height=CFG.fig_height_small)
+    fig = add_frame(fig)
+    return fig
 
 
 # =============================================================================
@@ -266,14 +391,12 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
 
     default_load = load_cols[0]
 
-    # --- Logo links (assets/path14.svg wird automatisch unter /assets/ ausgeliefert) ---
     ipa_logo = html.Img(
         src="/assets/path14.svg",
         className="navbar-logo",
         alt="Fraunhofer IPA",
     )
 
-    # --- Refresh Badge (rechts in der Navbar) ---
     refresh_badge = dbc.Badge(
         [html.I(className="fa-solid fa-rotate-right me-2"), "Aktualisieren"],
         id="btn-refresh",
@@ -285,7 +408,6 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
     app.layout = html.Div(
         className="app-root",
         children=[
-            # Dummy store for clientside page reload
             dcc.Store(id="refresh-store"),
 
             dbc.Navbar(
@@ -293,7 +415,6 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                     fluid=True,
                     className="navbar-inner",
                     children=[
-                        # LEFT: Logo + Title
                         html.Div(
                             className="navbar-left",
                             children=[
@@ -301,7 +422,6 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                                 html.Div(CFG.title, className="navbar-title"),
                             ],
                         ),
-                        # RIGHT: Badges + Refresh
                         html.Div(
                             className="navbar-badges",
                             children=[
@@ -320,6 +440,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                 fluid=True,
                 className="page-container",
                 children=[
+                    # --- Auswahl ---
                     dbc.Row(
                         className="mb-3",
                         children=[
@@ -363,7 +484,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                         ],
                     ),
 
-                    # --- Time Series Plot (Plotly) ---
+                    # --- Plot 1: Zeitreihe ---
                     dbc.Row(
                         className="mb-4",
                         children=[
@@ -372,7 +493,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                                 children=dbc.Card(
                                     className="card-surface shadow-sm",
                                     children=[
-                                        panel("Visualisierung", info_id="info-ts", info_text="Zeitreihe der ausgewählten Last."),
+                                        panel("Zeitreihe", info_id="info-ts", info_text="Zeitreihe der ausgewählten Last."),
                                         dbc.CardBody(
                                             dcc.Graph(id="g-ts", config=graph_config(), className="dash-graph"),
                                         ),
@@ -382,7 +503,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                         ],
                     ),
 
-                    # --- Self Similarity Plot (Matplotlib -> PNG) ---
+                    # --- Plot 2: Self Similarity (Matplotlib -> PNG) ---
                     dbc.Row(
                         className="mb-4",
                         children=[
@@ -403,6 +524,36 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
                                                     id="img-self-sim",
                                                     style={"width": "100%", "height": "auto"},
                                                     alt="Self Similarity Plot",
+                                                ),
+                                            )
+                                        ),
+                                    ],
+                                ),
+                            )
+                        ],
+                    ),
+
+                    # --- Plot 3: Min/Max/Median Distribution Comparison (Plotly) ---
+                    dbc.Row(
+                        className="mb-4",
+                        children=[
+                            dbc.Col(
+                                width=12,
+                                children=dbc.Card(
+                                    className="card-surface shadow-sm",
+                                    children=[
+                                        panel(
+                                            "Min/Max/Median Vergleich",
+                                            info_id="info-dist",
+                                            info_text="Min/Max-Band und Median über alle Lastprofile (sortiert nach Median) mit hervorgehobenem Target.",
+                                        ),
+                                        dbc.CardBody(
+                                            dcc.Loading(
+                                                type="default",
+                                                children=dcc.Graph(
+                                                    id="g-dist",
+                                                    config=graph_config(),
+                                                    className="dash-graph",
                                                 ),
                                             )
                                         ),
@@ -435,10 +586,11 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
         Output("g-ts", "figure"),
         Output("meta", "children"),
         Output("img-self-sim", "src"),
+        Output("g-dist", "figure"),
         Input("dd-load", "value"),
         prevent_initial_call=False,
     )
-    def update_timeseries(load_col: str):
+    def update_all(load_col: str):
         load_col = str(load_col)
 
         # ---- Plot 1: Time Series (Plotly) ----
@@ -447,40 +599,55 @@ def make_app(df: pd.DataFrame, load_cols: List[str]) -> Dash:
         ts_min = df["timestamp"].min()
         ts_max = df["timestamp"].max()
         n = len(df)
-
         meta = f"{label_for_load(load_col)} • Punkte: {n:,} • Zeitraum: {ts_min:%Y-%m-%d %H:%M} → {ts_max:%Y-%m-%d %H:%M}"
 
-        # ---- Plot 2: Self Similarity (Call in externem Modul) ----
+        # Prepare numeric-only DF for analysis functions (avoid strings)
+        # NOTE: keep only load columns needed; timestamp not required
         target_column = load_col
         reference_columns = [c for c in load_cols if c != target_column]
 
-        # Für Similarity: nur Loads, kein timestamp
-        sim_df = df[reference_columns + [target_column]].copy()
+        numeric_df = df[reference_columns + [target_column]].copy()
+        for c in numeric_df.columns:
+            numeric_df[c] = pd.to_numeric(numeric_df[c], errors="coerce")
 
-        # Numeric coercion (run_self_similarity arbeitet auf Zahlen)
-        for c in sim_df.columns:
-            sim_df[c] = pd.to_numeric(sim_df[c], errors="coerce")
-
-        # generate_self_similarity_plot verlangt: keine NaNs
-        sim_df = sim_df.dropna(axis=0, how="any")
-
-        fig_mpl = None
+        # ---- Plot 2: Self Similarity (existing logic, strict no-NaN requirement) ----
+        fig_mpl_ss = None
         try:
-            fig_mpl = generate_self_similarity_plot(
-                data_df=sim_df,
+            ss_df = numeric_df.dropna(axis=0, how="any")
+            fig_mpl_ss = generate_self_similarity_plot(
+                data_df=ss_df,
                 reference_columns=reference_columns,
                 target_column=target_column,
             )
-            img_src = mpl_fig_to_base64_png(fig_mpl)
+            img_self_sim = mpl_fig_to_base64_png(fig_mpl_ss)
         finally:
-            # wichtig: figure schließen, sonst wächst Memory bei jeder Dropdown-Änderung
-            if fig_mpl is not None:
+            if fig_mpl_ss is not None:
                 try:
-                    plt.close(fig_mpl)
+                    plt.close(fig_mpl_ss)
                 except Exception:
                     pass
 
-        return fig_ts, meta, img_src
+        # ---- Plot 3: Distribution Comparison (existing logic, then Plotly visualization) ----
+        # min_max_median expects ids without "load_" prefix as strings, and internally builds load_*
+        benchmark_ids = [id_for_load(c) for c in reference_columns]  # all other loads
+        target_id = id_for_load(target_column)
+
+        fig_mpl_dist = None
+        try:
+            fig_mpl_dist = generate_distribution_comparison(
+                data_df=df,  # function works with NaNs (pandas min/median/max ignore NaNs); keep full df
+                benchmark_columns=benchmark_ids,
+                target_column=target_id,
+            )
+            fig_dist = plotly_from_distribution_mpl(fig_mpl_dist)
+        finally:
+            if fig_mpl_dist is not None:
+                try:
+                    plt.close(fig_mpl_dist)
+                except Exception:
+                    pass
+
+        return fig_ts, meta, img_self_sim, fig_dist
 
     return app
 
