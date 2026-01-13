@@ -1,0 +1,1 @@
+GLOBAL_DATA_PATH = "D:\EnerBench"
