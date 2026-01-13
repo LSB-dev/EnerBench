@@ -43,12 +43,40 @@ def generate_self_similarity_plot(data_df: pd.DataFrame, reference_columns: List
     lag_7_scores = _lag_1w_similarity(data_df[reference_columns + [target_column]])
     print(lag_1_scores)
 
+    target_color = "r"
     best_lag_scores = {col: min(lag_1_scores[col], lag_7_scores[col]) for col in lag_1_scores}
 
+    y_min = 0.5
+    y_max = 1.5
+
     # create and return result plot
-    fig = plt.figure(figsize=(10, 10))
-    plt.hist([lag_1_scores[key] for key in reference_columns], label='Similarity Scores (the smaller the more similar)')
-    plt.vlines(x=lag_1_scores[target_column], ymin=0, ymax=1, colors='r', label='Target')
+    fig, axes = plt.subplots(3, 1, figsize=(10, 5), sharex=True)
+
+    data = [lag_1_scores[key] for key in reference_columns]
+    axes[0].boxplot(data, vert=False, patch_artist=True, boxprops=dict(facecolor="lightblue"))
+    axes[0].set_title(f"Similarity Scores (Lag 1d)")
+    axes[0].set_ylabel(f"")
+    axes[0].set_xlabel(f"Density")
+    axes[0].vlines(x=lag_1_scores[target_column], ymin=y_min, ymax=y_max, colors=target_color, linestyle="--", linewidth=2,
+                   label='Target')
+
+    data = [lag_7_scores[key] for key in reference_columns]
+    axes[1].boxplot(data, vert=False, patch_artist=True, boxprops=dict(facecolor="lightblue"))
+    axes[1].set_title(f"Similarity Scores (Lag 1w)")
+    axes[1].set_ylabel(f"")
+    axes[1].set_xlabel(f"Density")
+    axes[1].vlines(x=lag_7_scores[target_column], ymin=y_min, ymax=y_max, colors=target_color, linestyle="--", linewidth=2,
+                   label='Target')
+
+    data = [best_lag_scores[key] for key in reference_columns]
+    axes[2].boxplot(data, vert=False, patch_artist=True, boxprops=dict(facecolor="lightblue"))
+    axes[2].set_title(f"Similarity Scores (Overall)")
+    axes[2].set_ylabel(f"")
+    axes[2].set_xlabel(f"Density")
+    axes[2].vlines(x=best_lag_scores[target_column], ymin=y_min, ymax=y_max, colors=target_color, linestyle="--", linewidth=2,
+                   label='Target')
+
+
     plt.legend()
     return fig
 
