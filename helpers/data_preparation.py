@@ -238,19 +238,41 @@ selected = all_dat[cols]
 selected.to_csv(rf"{res_path}/15_loads.csv")
 
 
-# Select random sample within sector
+# Select random sample within sector, without many missing weather vars if possible
 sectors = summary_with_meta['Sector_group_id'].unique()
+weather_vars = ["temp", "dwpt", "rhum", "prcp", "snow", "wdir", "wspd", "wpgt", "pres", "tsun"]
+
+# Number of weather variables without missingness above 30%
+def weather_good_count_for_id(all_dat, load_id, weather_vars, thresh=0.30):
+    """How many weather variables for this id have missing proportion <= thresh."""
+    cols = [f"{v}_{load_id}" for v in weather_vars if f"{v}_{load_id}" in all_dat.columns]
+    if not cols:
+        return 0
+    miss = all_dat[cols].isna().mean()          # per-column missing proportion
+    return int((miss <= thresh).sum())
 
 selected_ids = []
 for sector in sectors:
     sector_dat = summary_with_meta[summary_with_meta['Sector_group_id'] == sector]
-    if len(sector_dat) > 0:
-        if len(sector_dat) >= 10:
-            rng = np.random.default_rng(75)
-            nums = random.sample(range(len(sector_dat)), 10)
-            selected_ids = selected_ids + list(sector_dat.iloc[nums,:].Id)
-        else:
-            print("Not enough datapoints in sector" + sector_dat.Sector_group.iloc[0])
+    if len(sector_dat) == 0:
+        continue
+
+    if len(sector_dat) >= 10:
+        # Number of weather data withouf missingness>30%
+        sector_dat["n_good_weather"] = sector_dat["Id"].apply(
+            lambda i: weather_good_count_for_id(all_dat, i, weather_vars, thresh=0.30)
+        )
+        sector_dat = sector_dat.sort_values("n_good_weather", ascending=False).reset_index(drop=True)
+
+        cutoff = sector_dat["n_good_weather"].iloc[10 - 1]
+        pool = sector_dat[sector_dat["n_good_weather"] >= cutoff]
+
+        # Select randomly 10
+        rng = np.random.default_rng(75)
+        nums = random.sample(range(len(pool)), 10)
+        selected_ids = selected_ids + list(pool.iloc[nums,:].Id)
+    else:
+        print("Not enough datapoints in sector" + sector_dat.Sector_group.iloc[0])
 
 cols = [
     c for c in all_dat.columns
