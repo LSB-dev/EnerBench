@@ -542,9 +542,9 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
                                     className="card-surface shadow-sm h-100",
                                     children=[
                                         panel(
-                                            "Selbstähnlichkeit Zeitreihe",
+                                            "Wie gut lässt sich meine Zeitreihe prognostizieren?",
                                             info_id="info-ss",
-                                            info_text="Vergleich Target-Load gegen Referenzen (Lag 1d / 1w / Best-of).",
+                                            info_text="Vergleich der Prognosefehler des Input-Lastprofils gegenüber den der Prognosefehlern aller anderen Lastprofile. Als einfache Prognose-Baslines dient das Vortag bzw. das Vorwochen-Lastprofil.",
                                         ),
                                         dbc.CardBody(
                                             [
