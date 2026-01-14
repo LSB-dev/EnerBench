@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from typing import List
 
 import plotly.graph_objects as go
@@ -8,6 +9,82 @@ import plotly.graph_objects as go
 benchmark_columns = ["116", "230", "665"]
 target_column = "640"
 """
+
+def _percentile(values: pd.Series, x: float) -> float:
+    """Percentile-like share of reference values <= x (ignores NaNs)."""
+    v = values.dropna().astype(float).to_numpy()
+    if v.size == 0 or not np.isfinite(x):
+        return np.nan
+    return 100.0 * (v <= float(x)).mean()
+
+
+def _phrase(metric_name: str, x: float, p: float, urteil: str) -> str:
+    """Sentence for one metric based on percentile p."""
+    if np.isnan(p):
+        return f"- {metric_name} ({float(x):.2f}): Perzentil nicht berechenbar"
+    if p >= 50:
+        phrase = f"{metric_name} ({float(x):.2f} kW): größer als bei {p:.1f}% der Referenzenzlastprofilen ({urteil})"
+    else:
+        phrase = f"{metric_name} ({float(x):.2f} kW): kleiner als {100 - p:.1f}% der Referenzenzlastprofilen ({urteil})"
+    return phrase
+
+def beurteilen(p: float) -> str:
+    if p < 25:
+        return "niedrig"
+    elif p < 40:
+        return "eher niedrig"
+    elif p <= 60:
+        return "typisch"
+    elif p <= 75:
+        return "eher hoch"
+    else:
+        return "hoch"
+
+
+def describe_target_vs_refs_percentiles(
+    refs: pd.DataFrame,
+    target_column: str
+) -> str:
+    """
+    Description using percentile wording, e.g.
+    'Max ist größer als 62.1% der Referenzen (Perzentil 62.1)'.
+    """
+
+    df = refs.copy()
+
+    target_min = refs.loc[target_column, "min"]
+    target_med = refs.loc[target_column, "median"]
+    target_max = refs.loc[target_column, "max"]
+
+    # Identify target id to exclude if present
+    target_id = target_column
+
+    ids = df["name"].astype(str) if "name" in df.columns else df.index.astype(str)
+    df_ref = df.loc[ids != str(target_id)]
+    n_ref = len(df_ref)
+
+    p_min = _percentile(df_ref["min"], target_min)
+    p_med = _percentile(df_ref["median"], target_med)
+    p_max = _percentile(df_ref["max"], target_max)
+
+    urteil_min = beurteilen(p_min)
+    urteil_med = beurteilen(p_med)
+    urteil_max = beurteilen(p_max)
+
+    header = f"Der Lastverbrauch des Zielprofils ({target_column}) im Vergleich zu {n_ref} Referenzlastprofilen"
+
+    lines = [
+        _phrase("Minimum", target_min, p_min, urteil_min),
+        _phrase("Median",  target_med, p_med, urteil_med),
+        _phrase("Maximum", target_max, p_max, urteil_max),
+    ]
+
+    return header + "\n" + "\n".join(lines)
+
+
+#####################
+
+
 
 def generate_distribution_comparison(
     data_df: pd.DataFrame,
@@ -147,4 +224,7 @@ def generate_distribution_comparison(
         height=520,
     )
 
-    return fig
+    # Generate figure capture
+    capture = describe_target_vs_refs_percentiles(refs, target_column)
+
+    return fig, capture
