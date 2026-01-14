@@ -38,7 +38,7 @@ def check_all_columns_have_no_nan(data_df, reference_columns, target_column):
 def _get_quantile_rank(lag_scores: dict, target_column_str: str)-> float:
     distribution = np.sort(np.array(list(lag_scores.values())))
     target_value = lag_scores[target_column_str]
-    print(distribution, target_value)
+
     position = np.searchsorted(distribution, target_value, side='left')
     relative_position = position / len(lag_scores)
     return relative_position
@@ -209,7 +209,9 @@ def generate_self_similarity_plot(data_df: pd.DataFrame, reference_columns: List
     else:
         total_summary = "unbekannt"
 
-    explanation_selfsim = f"Die wöchentliche Selbstähnlichkeit ist {weekly_summary}. Die tägliche Selbstähnlichkeit ist {daily_summary}. Die Gesamt-Selbstähnlichkeit ist {total_summary}."
-    print(explanation_selfsim)
+    interpretation_str = f"Die wöchentliche Selbstähnlichkeit ist {weekly_summary}. Die tägliche Selbstähnlichkeit ist {daily_summary}. Die Gesamt-Selbstähnlichkeit ist {total_summary}."
 
-    return fig, explanation_selfsim
+    # remove later, once interpretation string is added.
+    print(interpretation_str)
+
+    return fig, interpretation_str
