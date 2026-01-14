@@ -7,10 +7,10 @@
 # - Dropdown: Target-Load (gefiltert nach Branche)
 # - Auswahlmenü einklappbar (Collapse mit Pfeil)
 # - Plotly: Zeitreihe
-# - Plotly: Self-Similarity via analysis/self_similarity/run_self_similarity.py
-# - Plotly: Min/Max/Median via analysis/min_max_median.py  -> gibt (fig, capture) zurück
-# - Plotly: Weather Dependence via analysis/weather_dependence.py
-# - Unter Min/Max/Median: Textfeld mit Capture/Interpretation
+# - Plotly: Self-Similarity via analysis/self_similarity/run_self_similarity.py -> (fig, interpretation)
+# - Plotly: Min/Max/Median via analysis/min_max_median.py  -> (fig, capture)
+# - Plotly: Weather Dependence via analysis/weather_dependence.py -> (fig, capture)
+# - Unter Self-Similarity / MinMax / Weather: Textfeld mit Interpretation/Capture
 # - Refresh Badge rechts in der Navbar (Client-side Reload)
 # -----------------------------------------------------------------------------
 
@@ -323,6 +323,20 @@ def panel(title: str, info_id: Optional[str] = None, info_text: Optional[str] = 
     return dbc.CardHeader([header_row, tooltip] if tooltip else header_row, className="panel-header")
 
 
+def kpi_textbox(component_id: str) -> html.Pre:
+    """Unified text box style for KPI interpretations."""
+    return html.Pre(
+        id=component_id,
+        className="meta-text",
+        style={
+            "whiteSpace": "pre-wrap",
+            "margin": "0",
+            "fontSize": "0.95rem",
+            "lineHeight": "1.25rem",
+        },
+    )
+
+
 # =============================================================================
 # Helpers for sector -> load mapping
 # =============================================================================
@@ -476,10 +490,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
                                                                 dcc.Dropdown(
                                                                     id="dd-load",
                                                                     className="dash-dropdown",
-                                                                    options=[
-                                                                        {"label": label_for_load(c), "value": c}
-                                                                        for c in sector_to_loadcols[default_sector]
-                                                                    ],
+                                                                    options=[{"label": label_for_load(c), "value": c} for c in sector_to_loadcols[default_sector]],
                                                                     value=default_load,
                                                                     clearable=False,
                                                                     searchable=True,
@@ -536,12 +547,16 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
                                             info_text="Vergleich Target-Load gegen Referenzen (Lag 1d / 1w / Best-of).",
                                         ),
                                         dbc.CardBody(
-                                            dcc.Graph(
-                                                id="g-self-sim",
-                                                config=graph_config(),
-                                                className="dash-graph",
-                                                style={"height": "520px"},
-                                            )
+                                            [
+                                                dcc.Graph(
+                                                    id="g-self-sim",
+                                                    config=graph_config(),
+                                                    className="dash-graph",
+                                                    style={"height": "520px"},
+                                                ),
+                                                html.Hr(className="my-2"),
+                                                kpi_textbox("txt-self-sim"),
+                                            ]
                                         ),
                                     ],
                                 ),
@@ -566,16 +581,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
                                                     style={"height": "520px"},
                                                 ),
                                                 html.Hr(className="my-2"),
-                                                html.Pre(
-                                                    id="txt-minmax",
-                                                    className="meta-text",
-                                                    style={
-                                                        "whiteSpace": "pre-wrap",
-                                                        "margin": "0",
-                                                        "fontSize": "0.95rem",
-                                                        "lineHeight": "1.25rem",
-                                                    },
-                                                ),
+                                                kpi_textbox("txt-minmax"),
                                             ]
                                         ),
                                     ],
@@ -599,12 +605,16 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
                                             info_text="Spearman-Korrelation zwischen Last und wetterbasiertem linearem Modell (über saisonale Testmonate).",
                                         ),
                                         dbc.CardBody(
-                                            dcc.Graph(
-                                                id="g-weather",
-                                                config=graph_config(),
-                                                className="dash-graph",
-                                                style={"height": "520px"},
-                                            )
+                                            [
+                                                dcc.Graph(
+                                                    id="g-weather",
+                                                    config=graph_config(),
+                                                    className="dash-graph",
+                                                    style={"height": "520px"},
+                                                ),
+                                                html.Hr(className="my-2"),
+                                                kpi_textbox("txt-weather"),
+                                            ]
                                         ),
                                     ],
                                 ),
@@ -666,9 +676,11 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
         Output("g-ts", "figure"),
         Output("meta", "children"),
         Output("g-self-sim", "figure"),
+        Output("txt-self-sim", "children"),
         Output("g-minmax", "figure"),
         Output("txt-minmax", "children"),
         Output("g-weather", "figure"),
+        Output("txt-weather", "children"),
         Input("dd-sector", "value"),
         Input("dd-load", "value"),
         State("store-sector-map", "data"),
@@ -677,18 +689,18 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
     def update_dashboard(selected_sector: str, load_col: str, sector_map: dict):
         if not load_col:
             empty = make_empty_message_figure("Keine Last ausgewählt.")
-            return no_update, "Keine Last ausgewählt.", empty, empty, "", empty
+            return no_update, "Keine Last ausgewählt.", empty, "", empty, "", empty, ""
 
         load_col = str(load_col)
 
         if not selected_sector or not sector_map or selected_sector not in sector_map:
             empty = make_empty_message_figure("Keine gültige Branche ausgewählt.")
-            return no_update, "Keine gültige Branche ausgewählt.", empty, empty, "", empty
+            return no_update, "Keine gültige Branche ausgewählt.", empty, "", empty, "", empty, ""
 
         sector_load_cols: List[str] = list(sector_map[selected_sector])
         if not sector_load_cols:
             empty = make_empty_message_figure(f"Branche '{selected_sector}' hat keine zugeordneten Loads.")
-            return no_update, f"Branche '{selected_sector}' hat keine zugeordneten Loads.", empty, empty, "", empty
+            return no_update, f"Branche '{selected_sector}' hat keine zugeordneten Loads.", empty, "", empty, "", empty, ""
 
         if load_col not in sector_load_cols:
             load_col = sector_load_cols[0]
@@ -711,52 +723,61 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
 
         if not reference_columns:
             empty_fig = make_empty_message_figure("Nicht genug Referenzen in dieser Branche")
-            return fig_ts, meta, empty_fig, empty_fig, "Nicht genug Referenzen in dieser Branche.", empty_fig
+            msg = "Nicht genug Referenzen in dieser Branche."
+            return fig_ts, meta, empty_fig, msg, empty_fig, msg, empty_fig, msg
 
-        # ---- Plot 2: Self Similarity (ausgelagert) ----
+        # IDs für ausgelagerte Module
+        target_id = load_id(target_column)
+        benchmark_ids = [load_id(c) for c in reference_columns]
+
+        # ---- Plot 2: Self Similarity (ausgelagert) -> (fig, interpretation) ----
         sim_df = df[reference_columns + [target_column]].copy()
         for c in sim_df.columns:
             sim_df[c] = pd.to_numeric(sim_df[c], errors="coerce")
         sim_df = sim_df.dropna(axis=0, how="any")
-        fig_selfsim, interpretation_selfsim  = generate_self_similarity_plot(
-            data_df=sim_df,
-            reference_columns=reference_columns,
-            target_column=target_column,
-        )
+
+        try:
+            fig_selfsim, interpretation_selfsim = generate_self_similarity_plot(
+                data_df=sim_df,
+                reference_columns=reference_columns,
+                target_column=target_column,
+            )
+        except Exception as e:
+            LOGGER.exception("Self-similarity plot failed: %s", e)
+            fig_selfsim = make_empty_message_figure("Selbstähnlichkeit: Fehler in Berechnung")
+            interpretation_selfsim = "Selbstähnlichkeit konnte nicht berechnet werden (Fehler / Daten fehlen)."
 
         # ---- Plot 3: Min/Max/Median (ausgelagert) -> (fig, capture) ----
-        target_id = load_id(target_column)
-        benchmark_ids = [load_id(c) for c in reference_columns]
+        try:
+            fig_minmax, capture_minmax = generate_distribution_comparison(
+                data_df=df,
+                benchmark_columns=benchmark_ids,
+                target_column=target_id,
+            )
+        except Exception as e:
+            LOGGER.exception("Min/Max/Median plot failed: %s", e)
+            fig_minmax = make_empty_message_figure("Einordnung der Last: Fehler in Berechnung")
+            capture_minmax = "Einordnung konnte nicht berechnet werden (Fehler / Daten fehlen)."
 
-        fig_minmax, capture = generate_distribution_comparison(
-            data_df=df,
-            benchmark_columns=benchmark_ids,
-            target_column=target_id,
-        )
-
-        # ---- Plot 4: Weather Dependence (ausgelagert) ----
-        # ---- Plot 4: Weather Dependence (ausgelagert) ----
+        # ---- Plot 4: Weather Dependence (ausgelagert) -> (fig, capture) ----
         try:
             weather_out = generate_weather_dependence_plot(
                 data_df=df,
                 benchmark_columns=benchmark_ids,
                 target_column=target_id,
             )
-
-            # Robust: unterstützt both returns: fig OR (fig, capture)
             if isinstance(weather_out, tuple):
-                fig_weather = weather_out[0]
+                fig_weather, capture_weather = weather_out
             else:
-                fig_weather = weather_out
-
+                fig_weather, capture_weather = weather_out, ""
         except Exception as e:
             LOGGER.exception("Weather dependence plot failed: %s", e)
-            fig_weather = make_empty_message_figure("Wetterabhängigkeit: Daten/Features fehlen oder Fehler in Berechnung")
-
+            fig_weather = make_empty_message_figure("Wetterabhängigkeit: Fehler in Berechnung / Features fehlen")
+            capture_weather = "Wetterabhängigkeit konnte nicht berechnet werden (Features fehlen oder Fehler)."
 
         # Einheitliches Theme + Rahmen
         fig_ts = apply_dashboard_theme(fig_ts, showlegend=False)
-        fig_selfsim = apply_dashboard_theme(fig_selfsim, showlegend=False)
+        fig_selfsim = apply_dashboard_theme(fig_selfsim, showlegend=False)  # selfsim regelt showlegend intern
         fig_minmax = apply_dashboard_theme(fig_minmax)
         fig_weather = apply_dashboard_theme(fig_weather)
 
@@ -765,7 +786,16 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
         fig_minmax = add_frame(fig_minmax)
         fig_weather = add_frame(fig_weather)
 
-        return fig_ts, meta, fig_selfsim, fig_minmax, capture, fig_weather
+        return (
+            fig_ts,
+            meta,
+            fig_selfsim,
+            interpretation_selfsim,
+            fig_minmax,
+            capture_minmax,
+            fig_weather,
+            capture_weather,
+        )
 
     return app
 
