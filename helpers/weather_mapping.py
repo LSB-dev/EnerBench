@@ -1,13 +1,13 @@
 WEATHER_LABELS = {
-    "temp": "Air Temperature",
-    "dwpt": "Dew Point",
-    "rhum": "Relative Humidity",
-    "prcp": "Total Precipitation",
-    "snow": "Snowfall",
-    "wdir": "Wind Direction",
-    "wspd": "Wind Speed",
-    "wpgt": "Peak Wind Gust",
-    "pres": "Air Pressure",
-    "tsun": "Sunshine Duration",
-    "coco": "Weather Condition Code"
+    "temp": "Lufttemperatur",
+    "dwpt": "Taupunkt",
+    "rhum": "Relative Luftfeuchte",
+    "prcp": "Gesamtniederschlag",
+    "snow": "Schneefall",
+    "wdir": "Windrichtung",
+    "wspd": "Windgeschwindigkeit",
+    "wpgt": "Maximale Windböe",
+    "pres": "Luftdruck",
+    "tsun": "Sonnenscheindauer",
+    "coco": "Wetterzustandscode"
 }

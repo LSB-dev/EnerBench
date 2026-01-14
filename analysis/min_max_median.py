@@ -202,7 +202,7 @@ def generate_distribution_comparison(
                 x=[x_target, x_target, x_target],
                 y=[y_tmin, y_tmed, y_tmax],
                 mode="markers",
-                name="target",
+                name="Target",
                 marker=dict(color=c_target, size=9),
             )
         )

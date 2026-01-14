@@ -64,7 +64,7 @@ def describe_weather_dependency_de(
     all_corr: pd.DataFrame,
     target_col: str,
     weather_vars: list[str],
-    overall_name: str = "Overall Weather Dependence",
+    overall_name: str = "Gesamt-Wetterabhängigkeit",
     typisch_band=(40, 60),
     eher_band=(25, 75),
     trend_threshold: float = 70.0,  # z.B. 70% der Variablen zeigen gleiche Richtung
@@ -256,7 +256,7 @@ def describe_weather_dependency_de(
 
 def weather_corr(df: pd.DataFrame, load_id: str, weather_vars: List[str], test_months: List[int] = [1, 4, 7, 11]) -> float:
     """
-    Overall weather dependence measured as Spearman correlation between
+    Gesamt-Wetterabhängigkeit measured as Spearman correlation between
     observed load and predictions of a weather-only linear model, evaluated
     on representative periods from multiple seasons to avoid seasonal bias.
     """
@@ -455,7 +455,7 @@ def generate_distribution_comparison(data_df: pd.DataFrame, benchmark_columns: L
     for col_id in all_col_names:
         all_overall.append(weather_corr(data_df, col_id, weather_vars=list(all_corr.index)))
 
-    all_corr.loc["Overall Weather Dependence", :] = all_overall
+    all_corr.loc["Gesamt-Wetterabhängigkeit", :] = all_overall
 
     fig = plot_dependency_violinplot(
         all_corr,
@@ -468,7 +468,7 @@ def generate_distribution_comparison(data_df: pd.DataFrame, benchmark_columns: L
         all_corr,
         target_col,
         weather_vars=list(all_corr.index),
-        overall_name="Overall Weather Dependence",
+        overall_name="Gesamt-Wetterabhängigkeit",
     )
 
     return fig, capture
