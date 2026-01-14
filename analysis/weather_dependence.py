@@ -9,8 +9,8 @@ from sklearn.metrics import r2_score
 from helpers.weather_mapping import WEATHER_LABELS
 
 # coco and dow won't be used:
-# coco is not continuous
-# no explanation about dow
+#   coco is not continuous
+#   no explanation about dow
 
 """
 benchmark_columns = ["116", "230", "665"]
@@ -24,7 +24,13 @@ c_med = "#F58518"  # orange
 c_target = "#E45756"  # red
 c_band = "lightgrey"  # fill
 
-def weather_r2(df, load_id, weather_vars):
+def weather_corr(df, load_id, weather_vars, test_months = [1, 4, 7, 11]):
+    """
+    Overall weather dependence measured as Spearman correlation between
+    observed load and predictions of a weather-only linear model, evaluated
+    on representative periods from multiple seasons to avoid seasonal bias.
+    """
+
     y = df[f"load_{load_id}"].to_numpy()
     X = df[[f"{v}_{load_id}" for v in weather_vars]].to_numpy()
 
@@ -32,9 +38,15 @@ def weather_r2(df, load_id, weather_vars):
     y = y[mask]
     X = X[mask]
 
+    test_idx = df[mask][f"month_{load_id}"].isin(test_months)
+
+    X_train, X_test = X[~test_idx], X[test_idx]
+    y_train, y_test = y[~test_idx], y[test_idx]
+
     model = LinearRegression()
-    model.fit(X, y)
-    y_hat = model.predict(X)
+    model.fit(X_train, y_train)
+
+    y_hat = model.predict(X_test)
 
     return pd.Series(y).corr(pd.Series(y_hat), method="spearman")
 
@@ -45,8 +57,8 @@ def plot_dependency_boxplots(
     title: str = "Weather–load dependency across load profiles",
 ):
     """
-    Boxplot of dependency values per variable across reference load profiles,
-    with target profile highlighted by a horizontal line.
+    Violinplot of dependency values per variable across reference load profiles,
+    with target profile highlighted
 
     Parameters
     ----------
@@ -195,7 +207,7 @@ def generate_distribution_comparison(data_df:  pd.DataFrame, benchmark_columns: 
     # R2 from linear regression
     all_r2 = []
     for col_name in all_col_names:
-        all_r2.append(weather_r2(data_df, col_name, weather_vars = all_corr.index))
+        all_r2.append(weather_corr(data_df, col_name, weather_vars = all_corr.index))
 
     all_corr.loc["Overall Weather Dependence",:] = all_r2
 
