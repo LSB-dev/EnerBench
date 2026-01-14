@@ -735,15 +735,24 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
         )
 
         # ---- Plot 4: Weather Dependence (ausgelagert) ----
+        # ---- Plot 4: Weather Dependence (ausgelagert) ----
         try:
-            fig_weather = generate_weather_dependence_plot(
+            weather_out = generate_weather_dependence_plot(
                 data_df=df,
                 benchmark_columns=benchmark_ids,
                 target_column=target_id,
             )
+
+            # Robust: unterstützt both returns: fig OR (fig, capture)
+            if isinstance(weather_out, tuple):
+                fig_weather = weather_out[0]
+            else:
+                fig_weather = weather_out
+
         except Exception as e:
             LOGGER.exception("Weather dependence plot failed: %s", e)
             fig_weather = make_empty_message_figure("Wetterabhängigkeit: Daten/Features fehlen oder Fehler in Berechnung")
+
 
         # Einheitliches Theme + Rahmen
         fig_ts = apply_dashboard_theme(fig_ts, showlegend=False)
