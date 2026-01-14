@@ -29,7 +29,8 @@ c_band = "lightgrey"  # violin fill
 
 def _pct_leq(values: pd.Series, x: float) -> float:
     """Perzentil-artig: Anteil der Referenzen <= x in %."""
-    v = pd.to_numeric(values, errors="coerce").dropna().to_numpy(dtype=float)
+    v = np.abs(pd.to_numeric(values, errors="coerce").dropna().to_numpy(dtype=float))
+    x = np.abs(x)
     if v.size == 0 or not np.isfinite(x):
         return np.nan
     return 100.0 * (v <= float(x)).mean()
@@ -43,13 +44,13 @@ def _klasse_typisch(p: float, typisch_band=(40, 60), eher_band=(25, 75)) -> str:
     if lo_typ <= p <= hi_typ:
         return "typisch"
     if p < lo_eher:
-        return "deutlich niedriger"
+        return "deutlich schwächer"
     if p < lo_typ:
-        return "eher niedriger"
+        return "eher schwächer"
     if p > hi_eher:
-        return "deutlich höher"
+        return "deutlich stärker"
     if p > hi_typ:
-        return "eher höher"
+        return "eher stärker"
     return "typisch"
 
 
@@ -183,13 +184,16 @@ def describe_weather_dependency_de(
         dep["dist50"] = (dep["pct"] - 50).abs()
         top2 = dep.sort_values("dist50", ascending=False).head(2)
 
-        def fmt_line(v, p):
+        def fmt_line(v, t, p):
             name = labels.get(v, v)
             k = _klasse_typisch(p, typisch_band=typisch_band, eher_band=eher_band)
-            return f"- {name}: Perzentil {p:.1f} ({k} gegenüber Referenzen)"
+            return f"- {name}: ρ = {t:.2f} ({k} im Vergleich zu den Referenzen)"
 
-        top_lines = [fmt_line(v, float(row["pct"])) for v, row in top2.iterrows()]
-        top_text = "Die stärksten Abweichungen zeigen:\n" + "\n".join(top_lines)
+        top_lines = [
+            fmt_line(v, float(row["target"]), float(row["pct"]))
+            for v, row in top2.iterrows()
+        ]
+        top_text = "Die stärksten Zusammenhänge zeigen:\n" + "\n".join(top_lines)
 
     # ---------------------------
     # 3) Overall-Satz + Brücke
