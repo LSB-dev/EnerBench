@@ -718,8 +718,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
         for c in sim_df.columns:
             sim_df[c] = pd.to_numeric(sim_df[c], errors="coerce")
         sim_df = sim_df.dropna(axis=0, how="any")
-
-        fig_selfsim = generate_self_similarity_plot(
+        fig_selfsim, interpretation_selfsim  = generate_self_similarity_plot(
             data_df=sim_df,
             reference_columns=reference_columns,
             target_column=target_column,
