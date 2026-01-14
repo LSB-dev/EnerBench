@@ -60,7 +60,7 @@ def describe_weather_dependency_de(
     all_corr: pd.DataFrame,
     target_col: str,
     weather_vars: list[str],
-    overall_name: str = "Overall Weather Dependence",
+    overall_name: str = "Gesamtwetterabhängigkeit",
     typisch_band=(40, 60),
     eher_band=(25, 75),
     trend_threshold: float = 70.0,  # z.B. 70% der Variablen zeigen gleiche Richtung
@@ -202,7 +202,7 @@ def plot_dependency_violinplot(
     *,
     target_col: str,
     target_column: str,
-    title: str = "Weather–load dependency across load profiles",
+    title: str = "Wetterabhängigkeit der Last",
 ) -> go.Figure:
     """
     Plotly violinplot of dependency values per variable across reference load profiles,
@@ -329,14 +329,14 @@ def plot_dependency_violinplot(
     fig.update_layout(
         title=dict(text=title, x=0.02, xanchor="left"),
         xaxis=dict(
-            title="Weather variable",
+            title="Wettervariable",
             tickmode="array",
             tickvals=list(range(len(x_labels))),
             ticktext=x_labels,
             tickangle=0,
         ),
         yaxis=dict(
-            title="Spearman correlation (ρ)",
+            title="Spearman-Korrelation (ρ)",
             range=[lo, hi],
             zeroline=False,
         ),
@@ -420,7 +420,7 @@ def generate_distribution_comparison(data_df: pd.DataFrame, benchmark_columns: L
         all_corr,
         target_col=target_col,
         target_column=target_column,
-        title="Weather–load dependency across load profiles",
+        title="Wetterabhängigkeit der Last",
     )
 
     # Create figure caption
