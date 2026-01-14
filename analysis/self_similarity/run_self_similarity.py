@@ -197,15 +197,15 @@ def generate_self_similarity_plot(data_df: pd.DataFrame, reference_columns: List
         daily_summary = "unbekannt"
 
     if overall_quantile_rank <= 0.1:
-        total_summary = "sehr hoch (in den Top-10% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten kann ausreichend sein."
+        total_summary = "sehr hoch (in den Top-10% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten kann ausreichend sein"
     elif overall_quantile_rank <= 0.2:
-        total_summary = "hoch (in den Top-20% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten kann ausreichend sein."
+        total_summary = "hoch (in den Top-20% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten kann ausreichend sein"
     elif overall_quantile_rank > 0.2 and overall_quantile_rank < 0.8:
-        total_summary = "im durchschnittlichen Bereich. Eine Prognose nur basierend auf historischen Werten ist ungenau nicht empfohlen, weitere Varaiblen sind hierfür benötigt."
+        total_summary = "im durchschnittlichen Bereich. Eine Prognose nur basierend auf historischen Werten ist ungenau und nicht empfohlen, weitere Varaiblen sind hierfür benötigt"
     elif overall_quantile_rank >= 0.80 and overall_quantile_rank < 0.9:
-        total_summary = "niedrig (in den niedrigsten 20% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten ist ungenau und wird nicht empfohlen, weitere Varaiblen sind hierfür benötigt."
+        total_summary = "niedrig (in den niedrigsten 20% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten ist ungenau und wird nicht empfohlen, weitere Varaiblen sind hierfür benötigt"
     elif overall_quantile_rank >= 0.9:
-        total_summary = "sehr niedrig (in den niedrigsten 10% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten ist sehr ungenau und wird nicht empfohlen, weitere Varaiblen sind hierfür benötigt."
+        total_summary = "sehr niedrig (in den niedrigsten 10% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten ist sehr ungenau und wird nicht empfohlen, weitere Varaiblen sind hierfür benötigt"
     else:
         total_summary = "unbekannt"
 
