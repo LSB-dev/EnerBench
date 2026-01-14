@@ -8,8 +8,9 @@
 # - Auswahlmenü einklappbar (Collapse mit Pfeil)
 # - Plotly: Zeitreihe
 # - Plotly: Self-Similarity via analysis/self_similarity/run_self_similarity.py
-# - Plotly: Min/Max/Median via analysis/min_max_median.py
+# - Plotly: Min/Max/Median via analysis/min_max_median.py  -> gibt (fig, capture) zurück
 # - Plotly: Weather Dependence via analysis/weather_dependence.py
+# - Unter Min/Max/Median: Textfeld mit Capture/Interpretation
 # - Refresh Badge rechts in der Navbar (Client-side Reload)
 # -----------------------------------------------------------------------------
 
@@ -40,10 +41,9 @@ from analysis.self_similarity.run_self_similarity import generate_self_similarit
 from analysis.min_max_median import generate_distribution_comparison  # noqa: E402
 
 # Weather dependence (ausgelagert)
-# Hinweis: Modul hat aktuell eine Matplotlib-Implementierung – wir stylen hinterher
-# und behandeln Edge-Cases robust im Dashboard.
-from analysis.weather_dependence import generate_distribution_comparison as generate_weather_dependence_plot  # noqa: E402
-
+from analysis.weather_dependence import (  # noqa: E402
+    generate_distribution_comparison as generate_weather_dependence_plot,
+)
 
 # =============================================================================
 # Logging
@@ -274,6 +274,7 @@ def apply_dashboard_theme(
     )
     if showlegend is not None:
         fig.update_layout(showlegend=showlegend)
+
     fig.update_xaxes(gridcolor=GRID, linecolor=AXIS, zeroline=False, tickfont=dict(color=TEXT))
     fig.update_yaxes(gridcolor=GRID, linecolor=AXIS, zeroline=False, tickfont=dict(color=TEXT))
     return fig
@@ -421,7 +422,10 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
                         html.Div(className="navbar-left", children=[ipa_logo, html.Div(CFG.title, className="navbar-title")]),
                         html.Div(
                             className="navbar-badges",
-                            children=[dbc.Badge("Fraunhofer IPA | 80603", color="secondary", className="ms-2"), refresh_badge],
+                            children=[
+                                dbc.Badge("Fraunhofer IPA | 80603", color="secondary", className="ms-2"),
+                                refresh_badge,
+                            ],
                         ),
                     ],
                 ),
@@ -554,12 +558,25 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
                                             info_text="Min/Max-Band und Median über Referenzen (sortiert nach Median) mit hervorgehobener Target-Last.",
                                         ),
                                         dbc.CardBody(
-                                            dcc.Graph(
-                                                id="g-minmax",
-                                                config=graph_config(),
-                                                className="dash-graph",
-                                                style={"height": "520px"},
-                                            )
+                                            [
+                                                dcc.Graph(
+                                                    id="g-minmax",
+                                                    config=graph_config(),
+                                                    className="dash-graph",
+                                                    style={"height": "520px"},
+                                                ),
+                                                html.Hr(className="my-2"),
+                                                html.Pre(
+                                                    id="txt-minmax",
+                                                    className="meta-text",
+                                                    style={
+                                                        "whiteSpace": "pre-wrap",
+                                                        "margin": "0",
+                                                        "fontSize": "0.95rem",
+                                                        "lineHeight": "1.25rem",
+                                                    },
+                                                ),
+                                            ]
                                         ),
                                     ],
                                 ),
@@ -650,6 +667,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
         Output("meta", "children"),
         Output("g-self-sim", "figure"),
         Output("g-minmax", "figure"),
+        Output("txt-minmax", "children"),
         Output("g-weather", "figure"),
         Input("dd-sector", "value"),
         Input("dd-load", "value"),
@@ -659,18 +677,18 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
     def update_dashboard(selected_sector: str, load_col: str, sector_map: dict):
         if not load_col:
             empty = make_empty_message_figure("Keine Last ausgewählt.")
-            return no_update, "Keine Last ausgewählt.", empty, empty, empty
+            return no_update, "Keine Last ausgewählt.", empty, empty, "", empty
 
         load_col = str(load_col)
 
         if not selected_sector or not sector_map or selected_sector not in sector_map:
             empty = make_empty_message_figure("Keine gültige Branche ausgewählt.")
-            return no_update, "Keine gültige Branche ausgewählt.", empty, empty, empty
+            return no_update, "Keine gültige Branche ausgewählt.", empty, empty, "", empty
 
         sector_load_cols: List[str] = list(sector_map[selected_sector])
         if not sector_load_cols:
             empty = make_empty_message_figure(f"Branche '{selected_sector}' hat keine zugeordneten Loads.")
-            return no_update, f"Branche '{selected_sector}' hat keine zugeordneten Loads.", empty, empty, empty
+            return no_update, f"Branche '{selected_sector}' hat keine zugeordneten Loads.", empty, empty, "", empty
 
         if load_col not in sector_load_cols:
             load_col = sector_load_cols[0]
@@ -693,7 +711,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
 
         if not reference_columns:
             empty_fig = make_empty_message_figure("Nicht genug Referenzen in dieser Branche")
-            return fig_ts, meta, empty_fig, empty_fig, empty_fig
+            return fig_ts, meta, empty_fig, empty_fig, "Nicht genug Referenzen in dieser Branche.", empty_fig
 
         # ---- Plot 2: Self Similarity (ausgelagert) ----
         sim_df = df[reference_columns + [target_column]].copy()
@@ -707,20 +725,17 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
             target_column=target_column,
         )
 
-        # ---- Plot 3: Min/Max/Median (ausgelagert) ----
+        # ---- Plot 3: Min/Max/Median (ausgelagert) -> (fig, capture) ----
         target_id = load_id(target_column)
         benchmark_ids = [load_id(c) for c in reference_columns]
 
-        fig_minmax = generate_distribution_comparison(
+        fig_minmax, capture = generate_distribution_comparison(
             data_df=df,
             benchmark_columns=benchmark_ids,
             target_column=target_id,
         )
 
         # ---- Plot 4: Weather Dependence (ausgelagert) ----
-        # Erwartung der ausgelagerten Logik:
-        #   - data_df enthält Spalten: load_{id}, temp_{id}, ... sowie month_{id}
-        #   - benchmark_columns/target_column sind IDs ohne "load_"
         try:
             fig_weather = generate_weather_dependence_plot(
                 data_df=df,
@@ -742,7 +757,7 @@ def make_app(df: pd.DataFrame, load_cols: List[str], summary_df: pd.DataFrame) -
         fig_minmax = add_frame(fig_minmax)
         fig_weather = add_frame(fig_weather)
 
-        return fig_ts, meta, fig_selfsim, fig_minmax, fig_weather
+        return fig_ts, meta, fig_selfsim, fig_minmax, capture, fig_weather
 
     return app
 
