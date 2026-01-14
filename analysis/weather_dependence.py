@@ -24,6 +24,154 @@ c_target = "#E45756"  # red (target line/markers)
 c_band = "lightgrey"  # violin fill
 
 
+
+def _pct_leq(values: pd.Series, x: float) -> float:
+    """Perzentil-artig: Anteil der Referenzen <= x in %."""
+    v = pd.to_numeric(values, errors="coerce").dropna().to_numpy(dtype=float)
+    if v.size == 0 or not np.isfinite(x):
+        return np.nan
+    return 100.0 * (v <= float(x)).mean()
+
+def _klasse_typisch(p: float, typisch_band=(40, 60), eher_band=(25, 75)) -> str:
+    """Sehr einfache Einordnung über Perzentile."""
+    if np.isnan(p):
+        return "nicht berechenbar"
+    lo_typ, hi_typ = typisch_band
+    lo_eher, hi_eher = eher_band
+    if lo_typ <= p <= hi_typ:
+        return "typisch"
+    if p < lo_eher:
+        return "deutlich niedriger"
+    if p < lo_typ:
+        return "eher niedriger"
+    if p > hi_eher:
+        return "deutlich höher"
+    if p > hi_typ:
+        return "eher höher"
+    return "typisch"
+
+def _richtung(p: float) -> str:
+    """Ob target eher 'höher' oder 'niedriger' als Referenzen liegt."""
+    if np.isnan(p):
+        return "unbekannt"
+    return "höher" if p > 50 else "niedriger" if p < 50 else "ähnlich"
+
+def describe_weather_dependency_de(
+    all_corr: pd.DataFrame,
+    target_col: str,
+    weather_vars: list[str],
+    overall_name: str = "Overall Weather Dependence",
+    typisch_band=(40, 60),
+    eher_band=(25, 75),
+    trend_threshold: float = 70.0,  # z.B. 70% der Variablen zeigen gleiche Richtung
+) -> str:
+    """
+    Erzeugt eine kurze Beschreibung:
+    1) Trend über Wettervariablen (ohne Overall)
+    2) 2 stärkste Abweichungen (gegenüber Referenzen)
+    3) 1 Satz zum Overall-Maß
+    """
+
+    labels = WEATHER_LABELS
+    df = all_corr.copy()
+
+    if target_col not in df.columns:
+        raise ValueError(f"target_col '{target_col}' nicht in all_corr.columns")
+
+    # 1) Wettervariablen ohne Overall auswählen
+    vars_main = [v for v in weather_vars if v in df.index]
+    if overall_name in vars_main:
+        vars_main.remove(overall_name)
+
+    # Referenzen = alle Spalten außer target
+    ref_cols = [c for c in df.columns if c != target_col]
+    if not ref_cols:
+        raise ValueError("Es werden Referenzprofile benötigt (mind. eine Spalte neben target).")
+
+    # Perzentile je Variable berechnen
+    rows = []
+    for v in vars_main:
+        ref_vals = df.loc[v, ref_cols]
+        t = float(df.loc[v, target_col])
+        p = _pct_leq(ref_vals, t)  # Anteil refs <= target
+        rows.append((v, t, p))
+
+    dep = pd.DataFrame(rows, columns=["var", "target", "pct"]).set_index("var")
+
+    # Trendanalyse: wie viele liegen >50 bzw. <50 bzw. typisch
+    n = len(dep)
+    if n == 0:
+        trend_text = "Es liegen keine Wettervariablen zur Auswertung vor."
+        top_text = ""
+    else:
+        n_higher = int((dep["pct"] > 50).sum())
+        n_lower  = int((dep["pct"] < 50).sum())
+        n_equal  = n - n_higher - n_lower
+        share_higher = 100 * n_higher / n
+        share_lower  = 100 * n_lower / n
+
+        # Dominante Richtung?
+        if share_higher >= trend_threshold:
+            trend_text = (f"Über {share_higher:.0f}% der Wettervariablen zeigen beim Zielprofil "
+                          f"eine höhere Abhängigkeit als die Referenzlastprofile.")
+        elif share_lower >= trend_threshold:
+            trend_text = (f"Über {share_lower:.0f}% der Wettervariablen zeigen beim Zielprofil "
+                          f"eine geringere Abhängigkeit als die Referenzlastprofile.")
+        else:
+            # Gemischt
+            if n_equal > 0:
+                trend_text = (f"Die Wetterabhängigkeit des Zielprofils ist variablenabhängig: "
+                              f"{share_higher:.0f}% der Variablen zeigen eine höhere, "
+                              f"{share_lower:.0f}% eine geringere und "
+                              f"{100 * n_equal / n:.0f}% eine ähnlich Abhängigket "
+                              f"im Vergleich zu den Referenzen.")
+            else:
+                trend_text = (f"Die Wetterabhängigkeit des Zielprofils ist variablenabhängig: "
+                              f"{share_higher:.0f}% der Variablen zeigen eine höhere und "
+                              f"{share_lower:.0f}% eine geringere Abhängigket "
+                              f"im Vergleich zu den Referenzen.")
+
+        # 2) Zwei stärkste Abweichungen auswählen
+        # Stärke = Abstand vom 50%-Perzentil (wie untypisch ist die Position)
+        dep["dist50"] = (dep["pct"] - 50).abs()
+        top2 = dep.sort_values("dist50", ascending=False).head(2)
+
+        def fmt_line(v, t, p):
+            name = labels.get(v, v)
+            k = _klasse_typisch(p, typisch_band=typisch_band, eher_band=eher_band)
+            # formuliere Richtung + Perzentil
+            return (f"- {name}: Perzentil {p:.1f} "
+                    f"({k} gegenüber Referenzen)")
+
+        top_lines = [fmt_line(v, row["target"], row["pct"]) for v, row in top2.iterrows()]
+        top_text = "Die stärksten Abweichungen zeigen:\n" + "\n".join(top_lines)
+
+    # 3) Overall weather dependence Satz (optional)
+    overall_text = ""
+    if overall_name is not None and overall_name in df.index:
+        # gleicher Perzentil-Vergleich, aber nur für overall
+        ref_vals = df.loc[overall_name, ref_cols]
+        t = float(df.loc[overall_name, target_col])
+        p = _pct_leq(ref_vals, t)
+        k = _klasse_typisch(p, typisch_band=typisch_band, eher_band=eher_band)
+
+        overall_label = labels.get(overall_name, "Overall weather dependence")
+        overall_text = (f"{overall_label}: Perzentil {p:.1f} "
+                        f"({k} im Vergleich zu den Referenzen).")
+
+    # Zusammenbauen
+    parts = [trend_text]
+    if top_text:
+        parts.append(top_text)
+    if overall_text:
+        parts.append(overall_text)
+
+    return "\n\n".join(parts)
+
+
+##################################################################################
+
+
 def weather_corr(df: pd.DataFrame, load_id: str, weather_vars: List[str], test_months: List[int] = [1, 4, 7, 11]) -> float:
     """
     Overall weather dependence measured as Spearman correlation between
@@ -274,4 +422,8 @@ def generate_distribution_comparison(data_df: pd.DataFrame, benchmark_columns: L
         target_column=target_column,
         title="Weather–load dependency across load profiles",
     )
-    return fig
+
+    # Create figure caption
+    capture = describe_weather_dependency_de(all_corr, target_col, weather_vars)
+
+    return fig, capture
