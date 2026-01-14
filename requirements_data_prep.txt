@@ -1,0 +1,5 @@
+# Requirements for data preparation
+# These are only required if raw data is regenerated
+
+meteostat == 1.7.6
+pgeocode == 0.5.0
