@@ -26,13 +26,13 @@ c_target = "#E45756"  # red (target line/markers)
 c_band = "lightgrey"  # violin fill
 
 
+
 def _pct_leq(values: pd.Series, x: float) -> float:
     """Perzentil-artig: Anteil der Referenzen <= x in %."""
     v = pd.to_numeric(values, errors="coerce").dropna().to_numpy(dtype=float)
     if v.size == 0 or not np.isfinite(x):
         return np.nan
     return 100.0 * (v <= float(x)).mean()
-
 
 def _klasse_typisch(p: float, typisch_band=(40, 60), eher_band=(25, 75)) -> str:
     """Sehr einfache Einordnung über Perzentile."""
@@ -420,8 +420,15 @@ def generate_distribution_comparison(data_df: pd.DataFrame, benchmark_columns: L
 
     weather_vars = ["temp", "dwpt", "rhum", "prcp", "snow", "wdir", "wspd", "wpgt", "pres", "tsun"]
 
-    miss_prop = data_df.isna().sum() / max(len(data_df), 1)
-    high_missing = miss_prop[miss_prop > 0.3].index
+    weather_cols=[x + f"_{target_column}" for x in weather_vars]
+    missing_stats = pd.DataFrame({
+        "n_missing": data_df[weather_cols].isna().sum(),
+        "pct_missing": data_df[weather_cols].isna().mean() * 100
+    })
+    missing_stats = missing_stats[missing_stats.pct_missing > 30]
+
+    # Drop weather vars with high proportion of missing values (> 30%)
+    high_missing = missing_stats.index
 
     base_vars_high_missing = high_missing.to_series().astype(str).str.rsplit("_", n=1).str[0]
     weather_vars_to_drop = sorted(set(base_vars_high_missing).intersection(weather_vars))
