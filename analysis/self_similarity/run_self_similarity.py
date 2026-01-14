@@ -44,14 +44,14 @@ def _get_quantile_rank(lag_scores: dict, target_column_str: str)-> float:
     return relative_position
 
 
-def generate_self_similarity_plot(data_df: pd.DataFrame, reference_columns: List[str], target_column: str):
+def generate_self_similarity_plot(data_df: pd.DataFrame, reference_columns: List[str], target_column: str, metric="sMAPE"):
     # check inputs
     check_all_columns_are_in_df(data_df, reference_columns, target_column)
     check_all_columns_have_no_nan(data_df, reference_columns, target_column)
 
     # do some work
-    lag_1_scores = _lag_1d_similarity(data_df[reference_columns + [target_column]])
-    lag_7_scores = _lag_1w_similarity(data_df[reference_columns + [target_column]])
+    lag_1_scores = _lag_1d_similarity(data_df[reference_columns + [target_column]], metric=metric)
+    lag_7_scores = _lag_1w_similarity(data_df[reference_columns + [target_column]], metric=metric)
     best_lag_scores = {col: min(lag_1_scores[col], lag_7_scores[col]) for col in lag_1_scores}
 
     target_color = "#ff0000"
@@ -64,8 +64,8 @@ def generate_self_similarity_plot(data_df: pd.DataFrame, reference_columns: List
         cols=1,
         shared_xaxes=False,
         subplot_titles=[
-            "Einzelne Scores",
-            "Gesamt (Verteilung)"
+            "Prognostizierbarkeit anhand historischen Werten",
+            "Prognostizierbarkeit: Gesamt"
         ],
         vertical_spacing=0.2
     )
@@ -100,9 +100,9 @@ def generate_self_similarity_plot(data_df: pd.DataFrame, reference_columns: List
             showlegend=False,
             line=dict(color=target_color, width=2, dash="dash"),
         )
-    add_box(fig, lag_1_scores, "Täglich", y_pos=0)
-    add_box(fig, lag_7_scores, "Wöchentlich", y_pos=1)
-    fig.update_yaxes(tickvals=["0", "1"], ticktext=["Täglich", "Wöchentlich"], row=1, col=1)
+    add_box(fig, lag_1_scores, "anhand Vortag", y_pos=0)
+    add_box(fig, lag_7_scores, "anhand Vorwoche", y_pos=1)
+    fig.update_yaxes(tickvals=["0", "1"], ticktext=["anhand Vortag", "anhand Vorwoche"], row=1, col=1)
 
     # -----------------------------
     # Unteres Histogramm / Verteilung für Gesamt
@@ -113,6 +113,7 @@ def generate_self_similarity_plot(data_df: pd.DataFrame, reference_columns: List
                 x=hist_data,
                 y=[0] * len(hist_data),
                 orientation="h",
+                name="Gesamt Prognostizierbarkeit",
                 width=0.3,
                 marker_color="lightgreen",
                 boxmean=True,
@@ -160,7 +161,7 @@ def generate_self_similarity_plot(data_df: pd.DataFrame, reference_columns: List
         fig.update_xaxes(gridcolor=GRID, linecolor=AXIS, zeroline=False, tickfont=dict(color=TEXT), row=r, col=1)
         fig.update_yaxes(gridcolor=GRID, linecolor=AXIS, zeroline=False, tickfont=dict(color=TEXT), row=r, col=1)
 
-    fig.update_xaxes(title_text="Selbstähnlichkeit des Signals (je kleiner desto höher die Selbstähnlichkeit)", row=2,
+    fig.update_xaxes(title_text=f"Verteilung: Prognosefehler der Lastprofile (je kleiner der Fehler desto besser die Prognose), gemessen in {metric}", row=2,
                      col=1)
 
     # -----------------------------
@@ -197,19 +198,19 @@ def generate_self_similarity_plot(data_df: pd.DataFrame, reference_columns: List
         daily_summary = "unbekannt"
 
     if overall_quantile_rank <= 0.1:
-        total_summary = "sehr hoch (in den Top-10% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten kann ausreichend sein"
+        total_summary = "sehr niedrig (in den Top-10% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten kann ausreichend sein"
     elif overall_quantile_rank <= 0.2:
-        total_summary = "hoch (in den Top-20% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten kann ausreichend sein"
+        total_summary = "niedrig (in den Top-20% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten kann ausreichend sein"
     elif overall_quantile_rank > 0.2 and overall_quantile_rank < 0.8:
         total_summary = "im durchschnittlichen Bereich. Eine Prognose nur basierend auf historischen Werten ist ungenau und nicht empfohlen, weitere Varaiblen sind hierfür benötigt"
     elif overall_quantile_rank >= 0.80 and overall_quantile_rank < 0.9:
-        total_summary = "niedrig (in den niedrigsten 20% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten ist ungenau und wird nicht empfohlen, weitere Varaiblen sind hierfür benötigt"
+        total_summary = "hoch (in den niedrigsten 20% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten ist ungenau und wird nicht empfohlen, weitere Varaiblen sind hierfür benötigt"
     elif overall_quantile_rank >= 0.9:
-        total_summary = "sehr niedrig (in den niedrigsten 10% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten ist sehr ungenau und wird nicht empfohlen, weitere Varaiblen sind hierfür benötigt"
+        total_summary = "sehr hoch (in den niedrigsten 10% aller Unternehmen). Eine Prognose nur basierend auf historischen Werten ist sehr ungenau und wird nicht empfohlen, weitere Varaiblen sind hierfür benötigt"
     else:
         total_summary = "unbekannt"
 
-    interpretation_str = f"Die wöchentliche Selbstähnlichkeit ist {weekly_summary}. Die tägliche Selbstähnlichkeit ist {daily_summary}. Die Gesamt-Selbstähnlichkeit ist {total_summary}."
+    interpretation_str = (f"Die Lastprofil-Ähnlichkeit verglichen zur Vorwoche ist {weekly_summary}, die zum Vortag ist {daily_summary}. Der Prognosefehler basierend auf einer einfachen Prognose ist vergleichsweise {total_summary}.")
 
     # remove later, once interpretation string is added.
     print(interpretation_str)
